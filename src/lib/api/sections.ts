@@ -10,8 +10,9 @@ export type SectionDto = {
 	className?: string; // added optional className
 };
 
-export async function listAllSections() {
-	return apiFetch<{ success: true; data: SectionDto[] }>(`/sections`);
+export async function listAllSections(params?: { schoolId?: string }) {
+	const qs = params?.schoolId ? `?schoolId=${encodeURIComponent(params.schoolId)}` : "";
+	return apiFetch<{ success: true; data: SectionDto[] }>(`/sections${qs}`);
 }
 
 export async function listSectionsByClass(classId: string) {

@@ -10,7 +10,17 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectGroup,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { useClassesStore } from "@/stores/useClassesStore";
+import { useSchoolsStore } from "@/stores/useSchoolsStore";
+import { useAuthStore } from "@/stores/useAuthStore";
 import { AddClassDialog } from "@/components/add-class-dialog";
 import { EditClassDialog } from "@/components/edit-class-dialog";
 import { DeleteClassDialog } from "@/components/delete-class-dialog";
@@ -29,20 +39,55 @@ import { useEffect, useState } from "react";
 
 export default function ClassesPage() {
 	const { classes, loading, error, fetchClasses } = useClassesStore();
+	const { schools, fetchSchools } = useSchoolsStore();
+	const user = useAuthStore((s) => s.user);
+	const [selectedSchoolId, setSelectedSchoolId] = useState<string | "all">("all");
 	const [addOpen, setAddOpen] = useState(false);
 	const [editingClass, setEditingClass] = useState<ClassDto | null>(null);
 	const [deletingClass, setDeletingClass] = useState<ClassDto | null>(null);
 
 	useEffect(() => {
-		void fetchClasses();
-	}, [fetchClasses]);
+		if (user?.role === "admin") {
+			const schoolId = selectedSchoolId === "all" ? undefined : selectedSchoolId;
+			void fetchClasses({ schoolId });
+		} else {
+			void fetchClasses();
+		}
+	}, [fetchClasses, user?.role, selectedSchoolId]);
+
+	useEffect(() => {
+		if (user?.role === "admin") {
+			void fetchSchools();
+		}
+	}, [user?.role, fetchSchools]);
 
 	return (
 		<>
 			<div className="flex items-center justify-between px-4 lg:px-6">
-				<Label htmlFor="view-selector" className="sr-only">
-					View
-				</Label>
+				{user?.role === "admin" && (
+					<div className="flex items-center gap-2">
+						<Label className="text-sm">School</Label>
+						<Select
+							value={selectedSchoolId}
+							onValueChange={(v) => setSelectedSchoolId(v as "all" | string)}
+						>
+							<SelectTrigger className="w-[220px]" size="sm">
+								<SelectValue placeholder="All schools" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectGroup>
+									<SelectItem value="all">All</SelectItem>
+									{schools.map((s) => (
+										<SelectItem key={s.id} value={s.id}>
+											{s.name}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							</SelectContent>
+						</Select>
+					</div>
+				)}
+
 				<div className="flex-1" />
 
 				<div className="flex items-center gap-2">
@@ -79,7 +124,7 @@ export default function ClassesPage() {
 					}}
 				/>
 			)}
-			<div className="grid grid-cols-4 gap-4 px-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4 dark:*:data-[slot=card]:bg-card">
+			<div className="grid grid-cols-4 gap-4 px-4 *:data-[slot=card]:bg-linear-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4 dark:*:data-[slot=card]:bg-card">
 				{error && (
 					<div className="col-span-full text-sm text-destructive">{error}</div>
 				)}

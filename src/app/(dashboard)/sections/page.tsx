@@ -26,6 +26,8 @@ import { DeleteSectionDialog } from "@/components/delete-section-dialog";
 import type { SectionDto } from "@/lib/api/sections";
 import { useClassesStore } from "@/stores/useClassesStore";
 import { useSectionsStore } from "@/stores/useSectionsStore";
+import { useSchoolsStore } from "@/stores/useSchoolsStore";
+import { useAuthStore } from "@/stores/useAuthStore";
 import { 
 	Add01Icon, 
 	User02Icon,
@@ -51,21 +53,39 @@ export default function SectionsPage() {
 		loading: sectionsLoading,
 		error: sectionsError,
 	} = useSectionsStore();
+	const { schools, fetchSchools } = useSchoolsStore();
+	const user = useAuthStore((s) => s.user);
+	const [selectedSchoolId, setSelectedSchoolId] = useState<string | "all">("all");
 	const [selectedClassId, setSelectedClassId] = useState<string | null>("all");
 	const [addOpen, setAddOpen] = useState(false);
 	const [editingSection, setEditingSection] = useState<SectionDto | null>(null);
 	const [deletingSection, setDeletingSection] = useState<SectionDto | null>(null);
 
 	useEffect(() => {
-		void fetchClasses();
-	}, [fetchClasses]);
+		if (user?.role === "admin") {
+			const schoolId = selectedSchoolId === "all" ? undefined : selectedSchoolId;
+			void fetchClasses({ schoolId });
+		} else {
+			void fetchClasses();
+		}
+	}, [fetchClasses, user?.role, selectedSchoolId]);
+
+	useEffect(() => {
+		if (user?.role === "admin") {
+			void fetchSchools();
+		}
+	}, [user?.role, fetchSchools]);
 
 	// We default to "all" on load.
 	
 	useEffect(() => {
 		if (!selectedClassId) return;
-		void fetchByClass(selectedClassId);
-	}, [fetchByClass, selectedClassId]);
+		const schoolId =
+			user?.role === "admin" && selectedSchoolId !== "all"
+				? selectedSchoolId
+				: undefined;
+		void fetchByClass(selectedClassId, { schoolId });
+	}, [fetchByClass, selectedClassId, user?.role, selectedSchoolId]);
 
 	const sections = useMemo(() => {
 		if (!selectedClassId) return [];
@@ -76,9 +96,34 @@ export default function SectionsPage() {
 	return (
 		<>
 			<div className="flex items-center justify-between px-4 lg:px-6">
-				<Label htmlFor="view-selector" className="sr-only">
-					View
-				</Label>
+				<div className="flex items-center gap-2">
+					{user?.role === "admin" && (
+						<>
+							<Label className="text-sm">School</Label>
+							<Select
+								value={selectedSchoolId}
+								onValueChange={(v) => setSelectedSchoolId(v as "all" | string)}
+							>
+								<SelectTrigger className="w-[200px]" size="sm">
+									<SelectValue placeholder="All schools" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectGroup>
+										<SelectItem value="all">All</SelectItem>
+										{schools.map((s) => (
+											<SelectItem key={s.id} value={s.id}>
+												{s.name}
+											</SelectItem>
+										))}
+									</SelectGroup>
+								</SelectContent>
+							</Select>
+						</>
+					)}
+					<Label htmlFor="view-selector" className="sr-only">
+						View
+					</Label>
+				</div>
 				<Select
 					value={selectedClassId ?? undefined}
 					onValueChange={(v) => setSelectedClassId(v)}
@@ -139,7 +184,7 @@ export default function SectionsPage() {
 					}}
 				/>
 			)}
-			<div className="grid grid-cols-4 gap-4 px-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4 dark:*:data-[slot=card]:bg-card">
+			<div className="grid grid-cols-4 gap-4 px-4 *:data-[slot=card]:bg-linear-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4 dark:*:data-[slot=card]:bg-card">
 				{classesError && (
 					<div className="col-span-full text-sm text-destructive">
 						{classesError}

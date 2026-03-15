@@ -33,6 +33,12 @@ const navMain = [
 		icon: <HugeiconsIcon icon={HomeIcon} strokeWidth={2} />,
 	},
 	{
+		title: "Schools",
+		url: "/schools",
+		icon: <HugeiconsIcon icon={HomeIcon} strokeWidth={2} />,
+		adminOnly: true,
+	},
+	{
 		title: "Classes",
 		url: "/classes",
 		icon: <HugeiconsIcon icon={BookOpen01Icon} strokeWidth={2} />,

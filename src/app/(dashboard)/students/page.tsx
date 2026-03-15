@@ -16,6 +16,8 @@ import { AddStudentDialog } from "@/components/add-student-dialog";
 import { useClassesStore } from "@/stores/useClassesStore";
 import { useSectionsStore } from "@/stores/useSectionsStore";
 import { useStudentsStore } from "@/stores/useStudentsStore";
+import { useSchoolsStore } from "@/stores/useSchoolsStore";
+import { useAuthStore } from "@/stores/useAuthStore";
 import { useEffect, useMemo, useState } from "react";
 import { Add01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -40,6 +42,10 @@ export default function StudentsPage() {
 		fetchStudents,
 	} = useStudentsStore();
 
+	const { schools, fetchSchools } = useSchoolsStore();
+	const user = useAuthStore((s) => s.user);
+
+	const [selectedSchoolId, setSelectedSchoolId] = useState<string | "all">("all");
 	const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
 	const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
 		null,
@@ -47,8 +53,19 @@ export default function StudentsPage() {
 	const [addOpen, setAddOpen] = useState(false);
 
 	useEffect(() => {
-		void fetchClasses();
-	}, [fetchClasses]);
+		if (user?.role === "admin") {
+			const schoolId = selectedSchoolId === "all" ? undefined : selectedSchoolId;
+			void fetchClasses({ schoolId });
+		} else {
+			void fetchClasses();
+		}
+	}, [fetchClasses, user?.role, selectedSchoolId]);
+
+	useEffect(() => {
+		if (user?.role === "admin") {
+			void fetchSchools();
+		}
+	}, [user?.role, fetchSchools]);
 
 	useEffect(() => {
 		const first = classes[0];
@@ -60,9 +77,13 @@ export default function StudentsPage() {
 	useEffect(() => {
 		if (!selectedClassId) return;
 		setSelectedSectionId(null);
-		void fetchByClass(selectedClassId);
+		const schoolId =
+			user?.role === "admin" && selectedSchoolId !== "all"
+				? selectedSchoolId
+				: undefined;
+		void fetchByClass(selectedClassId, { schoolId });
 		void fetchStudents({ classId: selectedClassId });
-	}, [fetchByClass, fetchStudents, selectedClassId]);
+	}, [fetchByClass, fetchStudents, selectedClassId, user?.role, selectedSchoolId]);
 
 	useEffect(() => {
 		if (!selectedSectionId) return;
@@ -144,6 +165,33 @@ export default function StudentsPage() {
 	return (
 		<div className="space-y-4 px-4 lg:px-6">
 			<div className="flex flex-wrap items-center gap-3">
+				{user?.role === "admin" && (
+					<>
+						<Label className="text-sm">School</Label>
+						<Select
+							value={selectedSchoolId}
+							onValueChange={(v) => {
+								setSelectedSchoolId(v as "all" | string);
+								setSelectedClassId(null);
+								setSelectedSectionId(null);
+							}}
+						>
+							<SelectTrigger className="w-[220px]" size="sm">
+								<SelectValue placeholder="All schools" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectGroup>
+									<SelectItem value="all">All</SelectItem>
+									{schools.map((s) => (
+										<SelectItem key={s.id} value={s.id}>
+											{s.name}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							</SelectContent>
+						</Select>
+					</>
+				)}
 				<Label className="text-sm">Class</Label>
 				<Select
 					value={selectedClassId ?? undefined}

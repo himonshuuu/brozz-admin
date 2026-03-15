@@ -6,7 +6,7 @@ type State = {
   allSections: sectionsApi.SectionDto[]; // added
   loading: boolean;
   error: string | null;
-  fetchByClass: (classId: string | "all") => Promise<void>; // modified signature
+  fetchByClass: (classId: string | "all", params?: { schoolId?: string }) => Promise<void>;
 };
 
 export const useSectionsStore = create<State>((set, get) => ({
@@ -14,11 +14,11 @@ export const useSectionsStore = create<State>((set, get) => ({
   allSections: [],
   loading: false,
   error: null,
-  fetchByClass: async (classId) => {
+  fetchByClass: async (classId, params) => {
     set({ loading: true, error: null });
     try {
       if (classId === "all") {
-        const res = await sectionsApi.listAllSections();
+        const res = await sectionsApi.listAllSections({ schoolId: params?.schoolId });
         set({ allSections: res.data, loading: false });
         return;
       }
