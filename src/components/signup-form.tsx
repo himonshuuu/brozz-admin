@@ -26,7 +26,7 @@ import {
 	InputOTPGroup,
 } from "@/components/ui/input-otp";
 import { REGEXP_ONLY_DIGITS_AND_CHARS } from "input-otp";
-import { schoolLogin, schoolRegister, schoolResendOtp, schoolVerifyOtp } from "@/lib/api/auth";
+import { login, schoolRegister, schoolResendOtp, schoolVerifyOtp } from "@/lib/api/auth";
 
 export function SignupForm({
 	className,
@@ -77,7 +77,7 @@ export function SignupForm({
 			await schoolVerifyOtp(pendingEmail, otp);
 
 			// auto-login after verify
-			const loginJson = await schoolLogin(pendingEmail, pendingPassword);
+			const loginJson = await login(pendingEmail, pendingPassword);
 			if (!loginJson?.success) {
 				toast.success("Verified. Please login.");
 				router.push("/login");

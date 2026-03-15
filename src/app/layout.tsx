@@ -13,7 +13,7 @@ export default function RootLayout({
 }>) {
 	return (
 		<html lang="en">
-			<body className={cn("antialiased font-sans", inter.variable)}>
+			<body className={cn("dark antialiased font-sans", inter.variable)}>
 				<TooltipProvider>
 					<Toaster />
 					{children}

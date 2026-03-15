@@ -3,18 +3,25 @@ import * as sectionsApi from "@/lib/api/sections";
 
 type State = {
   byClassId: Record<string, sectionsApi.SectionDto[]>;
+  allSections: sectionsApi.SectionDto[]; // added
   loading: boolean;
   error: string | null;
-  fetchByClass: (classId: string) => Promise<void>;
+  fetchByClass: (classId: string | "all") => Promise<void>; // modified signature
 };
 
 export const useSectionsStore = create<State>((set, get) => ({
   byClassId: {},
+  allSections: [],
   loading: false,
   error: null,
   fetchByClass: async (classId) => {
     set({ loading: true, error: null });
     try {
+      if (classId === "all") {
+        const res = await sectionsApi.listAllSections();
+        set({ allSections: res.data, loading: false });
+        return;
+      }
       const res = await sectionsApi.listSectionsByClass(classId);
       set({ byClassId: { ...get().byClassId, [classId]: res.data }, loading: false });
     } catch (e) {

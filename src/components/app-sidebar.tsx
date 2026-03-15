@@ -19,40 +19,50 @@ import {
 	GridViewIcon,
 	PrinterIcon,
 	StudentIcon,
+	ContactBookIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type * as React from "react";
 import { SidebarTrigger } from "./ui/sidebar";
 import { useAuthStore } from "@/stores/useAuthStore";
 
-const data = {
-	navMain: [
-		{
-			title: "Dashboard",
-			url: "/",
-			icon: <HugeiconsIcon icon={HomeIcon} strokeWidth={2} />,
-		},
-		{
-			title: "Classes",
-			url: "/classes",
-			icon: <HugeiconsIcon icon={BookOpen01Icon} strokeWidth={2} />,
-		},
-		{
-			title: "Sections",
-			url: "/sections",
-			icon: <HugeiconsIcon icon={GridViewIcon} strokeWidth={2} />,
-		},
-		{
-			title: "Students",
-			url: "/students",
-			icon: <HugeiconsIcon icon={StudentIcon} />,
-		},
-	],
-};
+const navMain = [
+	{
+		title: "Dashboard",
+		url: "/",
+		icon: <HugeiconsIcon icon={HomeIcon} strokeWidth={2} />,
+	},
+	{
+		title: "Classes",
+		url: "/classes",
+		icon: <HugeiconsIcon icon={BookOpen01Icon} strokeWidth={2} />,
+	},
+	{
+		title: "Sections",
+		url: "/sections",
+		icon: <HugeiconsIcon icon={GridViewIcon} strokeWidth={2} />,
+	},
+	{
+		title: "Students",
+		url: "/students",
+		icon: <HugeiconsIcon icon={StudentIcon} strokeWidth={2} />,
+	},
+	{
+		title: "ID Cards",
+		url: "/id-cards",
+		icon: <HugeiconsIcon icon={ContactBookIcon} strokeWidth={2} />,
+		adminOnly: true,
+	},
+];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 	const user = useAuthStore((s) => s.user);
 	if (!user) return null;
+
+	const filteredNav = navMain.filter(
+		(item) => !item.adminOnly || user.role === "admin",
+	);
+
 	return (
 		<Sidebar collapsible="icon" {...props}>
 			<SidebarHeader>
@@ -82,7 +92,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 				</SidebarMenu>
 			</SidebarHeader>
 			<SidebarContent>
-				<NavMain items={data.navMain} />
+				<NavMain items={filteredNav} />
 			</SidebarContent>
 			<SidebarFooter>
 				<NavImportJobs />

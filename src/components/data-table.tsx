@@ -14,6 +14,14 @@ import {
 	DrawerTrigger,
 } from "@/components/ui/drawer";
 import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
@@ -158,7 +166,7 @@ const columns: ColumnDef<z.infer<typeof schema>>[] = [
 	{
 		accessorKey: "dob",
 		header: "DOB",
-		cell: ({ row }) => row.original.dob,
+		cell: ({ row }) => new Date(row.original.dob).toLocaleDateString(),
 	},
 	{
 		accessorKey: "class",
@@ -195,7 +203,7 @@ const columns: ColumnDef<z.infer<typeof schema>>[] = [
 		cell: ({ row, table }) => {
 			const meta = table.options.meta as {
 				onEdit: (item: z.infer<typeof schema>) => void;
-				onDelete: (id: string) => void;
+				onDeletePrompt: (id: string) => void;
 			};
 
 			return (
@@ -218,7 +226,7 @@ const columns: ColumnDef<z.infer<typeof schema>>[] = [
 						<DropdownMenuSeparator />
 						<DropdownMenuItem
 							variant="destructive"
-							onClick={() => meta.onDelete(row.original.id)}
+							onClick={() => meta.onDeletePrompt(row.original.id)}
 						>
 							<HugeiconsIcon icon={Delete02Icon} />
 							Delete
@@ -275,6 +283,7 @@ export function DataTable({
 	const [editingItem, setEditingItem] = React.useState<z.infer<
 		typeof schema
 	> | null>(null);
+	const [deletingId, setDeletingId] = React.useState<string | null>(null);
 	const [isAddingStudent, setIsAddingStudent] = React.useState(false);
 	const sortableId = React.useId();
 	const sensors = useSensors(
@@ -294,6 +303,7 @@ export function DataTable({
 
 	const handleDelete = React.useCallback((id: string) => {
 		setData((prev) => prev.filter((item) => item.id !== id));
+		setDeletingId(null);
 	}, []);
 
 	const handleSave = React.useCallback(
@@ -341,7 +351,7 @@ export function DataTable({
 		getFacetedUniqueValues: getFacetedUniqueValues(),
 		meta: {
 			onEdit: handleEdit,
-			onDelete: handleDelete,
+			onDeletePrompt: setDeletingId,
 		},
 	});
 
@@ -376,6 +386,24 @@ export function DataTable({
 					onSave={handleAddStudent}
 				/>
 			)}
+			<Dialog open={!!deletingId} onOpenChange={(open) => !open && setDeletingId(null)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Delete Student</DialogTitle>
+						<DialogDescription>
+							Are you sure you want to delete this student? This action cannot be undone.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => setDeletingId(null)}>
+							Cancel
+						</Button>
+						<Button variant="destructive" onClick={() => deletingId && handleDelete(deletingId)}>
+							Delete
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 			<TabsContent
 				value="outline"
 				className="relative flex flex-col gap-4 overflow-auto px-4 lg:px-6"

@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { schoolLogin } from "@/lib/api/auth";
+import { login } from "@/lib/api/auth";
 import { useAuthStore } from "@/stores/useAuthStore";
 
 export function LoginForm({
@@ -39,7 +39,7 @@ export function LoginForm({
 
     setLoading(true);
     try {
-      const json = await schoolLogin(email, password);
+      const json = await login(email, password);
       const token = json.data?.token as string | undefined;
       if (!token) throw new Error("No token returned");
       setToken(token);

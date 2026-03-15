@@ -7,7 +7,12 @@ export type SectionDto = {
   createdAt: string | Date;
   updatedAt: string | Date;
   studentsCount: number;
+	className?: string; // added optional className
 };
+
+export async function listAllSections() {
+	return apiFetch<{ success: true; data: SectionDto[] }>(`/sections`);
+}
 
 export async function listSectionsByClass(classId: string) {
   return apiFetch<{ success: true; data: SectionDto[] }>(`/sections/by-class/${classId}`);

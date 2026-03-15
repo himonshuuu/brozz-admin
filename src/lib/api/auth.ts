@@ -9,8 +9,8 @@ export type CurrentUser = {
   createdAt?: string | null;
 };
 
-export async function schoolLogin(email: string, password: string) {
-  return apiFetch<{ success: true; data: { token: string } }>("/auth/school/login", {
+export async function login(email: string, password: string) {
+  return apiFetch<{ success: true; data: { token: string } }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });

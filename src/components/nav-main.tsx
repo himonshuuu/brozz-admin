@@ -24,6 +24,9 @@ export function NavMain({
 	}[];
 }) {
 	const [importOpen, setImportOpen] = useState(false);
+	const activeItem = items.find(
+		(item) => item.url === window.location.pathname,
+	);
 
 	return (
 		<SidebarGroup>
@@ -44,7 +47,13 @@ export function NavMain({
 				<SidebarMenu>
 					{items.map((item) => (
 						<SidebarMenuItem key={item.title}>
-							<SidebarMenuButton asChild tooltip={item.title}>
+							<SidebarMenuButton
+								asChild
+								tooltip={item.title}
+								className={
+									activeItem?.title === item.title ? "bg-secondary " : ""
+								}
+							>
 								<Link href={item.url}>
 									{item.icon}
 									<span>{item.title}</span>
