@@ -20,6 +20,7 @@ import {
 	PrinterIcon,
 	StudentIcon,
 	ContactBookIcon,
+	SchoolIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type * as React from "react";
@@ -35,7 +36,7 @@ const navMain = [
 	{
 		title: "Schools",
 		url: "/schools",
-		icon: <HugeiconsIcon icon={HomeIcon} strokeWidth={2} />,
+		icon: <HugeiconsIcon icon={SchoolIcon} strokeWidth={2} />,
 		adminOnly: true,
 	},
 	{

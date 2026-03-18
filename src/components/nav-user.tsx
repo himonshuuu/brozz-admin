@@ -4,7 +4,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
-	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
@@ -16,14 +15,9 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import {
-	CreditCardIcon,
-	Logout01Icon,
-	MoreVerticalCircle01Icon,
-	Notification03Icon,
-	UserCircle02Icon,
-} from "@hugeicons/core-free-icons";
+import { Logout01Icon, Moon01Icon, MoreVerticalCircle01Icon, Sun01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useTheme } from "next-themes";
 
 export function NavUser({
 	user,
@@ -34,6 +28,12 @@ export function NavUser({
 	};
 }) {
 	const { isMobile } = useSidebar();
+	const { setTheme, resolvedTheme } = useTheme();
+	const isDark = resolvedTheme === "dark";
+
+	function toggleTheme() {
+		setTheme(isDark ? "light" : "dark");
+	}
 
 	return (
 		<SidebarMenu>
@@ -92,20 +92,19 @@ export function NavUser({
 							</div>
 						</DropdownMenuLabel>
 						<DropdownMenuSeparator />
-						<DropdownMenuGroup>
-							<DropdownMenuItem>
-								<HugeiconsIcon icon={UserCircle02Icon} strokeWidth={2} />
-								Account
-							</DropdownMenuItem>
-							<DropdownMenuItem>
-								<HugeiconsIcon icon={CreditCardIcon} strokeWidth={2} />
-								Billing
-							</DropdownMenuItem>
-							<DropdownMenuItem>
-								<HugeiconsIcon icon={Notification03Icon} strokeWidth={2} />
-								Notifications
-							</DropdownMenuItem>
-						</DropdownMenuGroup>
+						<DropdownMenuItem onClick={toggleTheme}>
+							{isDark ? (
+								<>
+									<HugeiconsIcon icon={Sun01Icon} strokeWidth={2} />
+									Light mode
+								</>
+							) : (
+								<>
+									<HugeiconsIcon icon={Moon01Icon} strokeWidth={2} />
+									Dark mode
+								</>
+							)}
+						</DropdownMenuItem>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem>
 							<HugeiconsIcon icon={Logout01Icon} strokeWidth={2} />
