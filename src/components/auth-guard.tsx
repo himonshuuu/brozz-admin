@@ -22,7 +22,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 		if (isAuthenticated) return;
 		// Remember where the user wanted to go, so we can redirect back after login.
 		try {
-			if (pathname && pathname !== "/login" && pathname !== "/signup") {
+			const intentionalLogout =
+				window.sessionStorage.getItem("intentionalLogout") === "1";
+			if (intentionalLogout) {
+				window.sessionStorage.removeItem("intentionalLogout");
+			}
+			if (
+				!intentionalLogout &&
+				pathname &&
+				pathname !== "/login" &&
+				pathname !== "/signup"
+			) {
 				window.sessionStorage.setItem("postLoginRedirect", pathname);
 			}
 		} catch {
@@ -44,4 +54,3 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
 	return <>{children}</>;
 }
-

@@ -15,9 +15,16 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { Logout01Icon, Moon01Icon, MoreVerticalCircle01Icon, Sun01Icon } from "@hugeicons/core-free-icons";
+import {
+	Logout01Icon,
+	Moon01Icon,
+	MoreVerticalCircle01Icon,
+	Sun01Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/stores/useAuthStore";
 
 export function NavUser({
 	user,
@@ -29,10 +36,22 @@ export function NavUser({
 }) {
 	const { isMobile } = useSidebar();
 	const { setTheme, resolvedTheme } = useTheme();
+	const router = useRouter();
+	const logout = useAuthStore((s) => s.logout);
 	const isDark = resolvedTheme === "dark";
 
 	function toggleTheme() {
 		setTheme(isDark ? "light" : "dark");
+	}
+
+	function handleLogout() {
+		try {
+			window.sessionStorage.setItem("intentionalLogout", "1");
+		} catch {
+			// ignore storage errors
+		}
+		logout();
+		router.replace("/login");
 	}
 
 	return (
@@ -46,9 +65,7 @@ export function NavUser({
 						>
 							<Avatar className="h-8 w-8 rounded-lg grayscale">
 								<AvatarFallback className="rounded-lg">
-									{(user.name ?? user.email ?? "")
-										.charAt(0)
-										.toUpperCase()}
+									{(user.name ?? user.email ?? "").charAt(0).toUpperCase()}
 								</AvatarFallback>
 							</Avatar>
 							<div className="grid flex-1 text-left text-sm leading-tight">
@@ -76,9 +93,7 @@ export function NavUser({
 							<div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
 								<Avatar className="h-8 w-8 rounded-lg">
 									<AvatarFallback className="rounded-lg">
-										{(user.name ?? user.email ?? "")
-											.charAt(0)
-											.toUpperCase()}
+										{(user.name ?? user.email ?? "").charAt(0).toUpperCase()}
 									</AvatarFallback>
 								</Avatar>
 								<div className="grid flex-1 text-left text-sm leading-tight">
@@ -106,7 +121,7 @@ export function NavUser({
 							)}
 						</DropdownMenuItem>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem>
+						<DropdownMenuItem onClick={handleLogout}>
 							<HugeiconsIcon icon={Logout01Icon} strokeWidth={2} />
 							Log out
 						</DropdownMenuItem>
