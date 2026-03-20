@@ -21,17 +21,27 @@ export async function apiFetch<T>(
 	const token = getToken();
 	const headers = new Headers(init?.headers);
 	if (token) headers.set("Authorization", `Bearer ${token}`);
-	// Let browser set boundary for FormData
-	if (!(init?.body instanceof FormData))
+	// Let browser set content-type for FormData/Blob/File/raw bodies
+	const body = init?.body;
+	const isBinaryBody =
+		typeof Blob !== "undefined" &&
+		body !== undefined &&
+		body !== null &&
+		body instanceof Blob;
+	if (!(body instanceof FormData) && !isBinaryBody)
 		headers.set("Content-Type", "application/json");
 
 	const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
 	const json = (await res.json().catch(() => null)) as unknown;
 
 	if (!res.ok) {
+		const errorPayload =
+			typeof json === "object" && json !== null
+				? (json as { message?: string; error?: string })
+				: null;
 		const msg =
-			(json as any)?.message ||
-			(json as any)?.error ||
+			errorPayload?.message ||
+			errorPayload?.error ||
 			`Request failed (${res.status})`;
 		throw new Error(msg);
 	}
