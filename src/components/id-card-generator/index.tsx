@@ -2,8 +2,10 @@
 
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PrinterIcon } from "@hugeicons/core-free-icons";
+import { generateIdCardsZip } from "@/lib/api/id-cards";
+import { Download01Icon, LoaderCircle } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { saveAs } from "file-saver";
 import { useState } from "react";
 import { PrintPreview } from "./print-preview";
 import { StudentSelector } from "./student-selector";
@@ -43,9 +45,32 @@ export function IdCardEditor() {
 	const [templateImage, setTemplateImage] = useState<string | null>(null);
 	const [fields, setFields] = useState<IdCardFieldPlacement[]>([]);
 	const [selectedStudents, setSelectedStudents] = useState<any[]>([]);
+	const [downloading, setDownloading] = useState(false);
 
-	const handlePrint = () => {
-		window.print();
+	const handleGenerateAndDownload = async () => {
+		if (!templateImage || selectedStudents.length === 0) return;
+		setDownloading(true);
+		try {
+			const templateBase64 = templateImage.startsWith("data:")
+				? (templateImage.match(/^data:image\/\w+;base64,(.+)$/)?.[1] ??
+					templateImage)
+				: templateImage;
+			const blob = await generateIdCardsZip(
+				templateBase64,
+				fields,
+				selectedStudents.map((s) => String(s.id ?? "")).filter(Boolean),
+			);
+			saveAs(blob, "printloom-id-cards.zip");
+		} catch (err) {
+			console.error("ID card generation failed", err);
+			alert(
+				err instanceof Error
+					? err.message
+					: "Failed to generate ID cards. Please try again.",
+			);
+		} finally {
+			setDownloading(false);
+		}
 	};
 
 	return (
@@ -62,15 +87,24 @@ export function IdCardEditor() {
 						<TabsTrigger value="preview">3. Print Preview</TabsTrigger>
 					</TabsList>
 					<Button
-						onClick={handlePrint}
+						onClick={handleGenerateAndDownload}
 						disabled={
 							activeTab !== "preview" ||
 							selectedStudents.length === 0 ||
-							!templateImage
+							!templateImage ||
+							downloading
 						}
+						variant="secondary"
 					>
-						<HugeiconsIcon icon={PrinterIcon} className="mr-2" />
-						Print Cards
+						{downloading ? (
+							<HugeiconsIcon
+								icon={LoaderCircle}
+								className="mr-2 animate-spin"
+							/>
+						) : (
+							<HugeiconsIcon icon={Download01Icon} className="mr-2" />
+						)}
+						Generate &amp; Download ZIP
 					</Button>
 				</div>
 				<div className="flex-1 overflow-hidden relative">

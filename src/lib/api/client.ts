@@ -12,8 +12,10 @@ function getToken(): string | null {
 	);
 }
 
-const API_BASE =
-	process.env.NEXT_PUBLIC_API_BASE || "https://api.printloom.netpiedev.in";
+export const API_BASE =
+	process.env.NEXT_PUBLIC_API_BASE ||
+	process.env.NEXT_PUBLIC_API_URL ||
+	"https://api.printloom.netpiedev.in";
 export async function apiFetch<T>(
 	path: string,
 	init?: RequestInit,
