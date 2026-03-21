@@ -1,5 +1,9 @@
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { listClasses } from "@/lib/api/classes";
+import { listImportJobs } from "@/lib/api/import";
+import { listSchools } from "@/lib/api/schools";
 import {
 	Card,
 	CardAction,
@@ -8,8 +12,93 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useAuthStore } from "@/stores/useAuthStore";
+
+type DashboardStats = {
+	totalClasses: number;
+	totalSections: number;
+	totalStudents: number;
+	totalImports: number;
+	runningImports: number;
+};
 
 export default function Home() {
+	const user = useAuthStore((s) => s.user);
+	const [loading, setLoading] = useState(true);
+	const [stats, setStats] = useState<DashboardStats>({
+		totalClasses: 0,
+		totalSections: 0,
+		totalStudents: 0,
+		totalImports: 0,
+		runningImports: 0,
+	});
+
+	useEffect(() => {
+		let cancelled = false;
+
+		const loadStats = async () => {
+			setLoading(true);
+			try {
+				const classesRes = await listClasses();
+				const totalClasses = classesRes.data.length;
+				const totalSections = classesRes.data.reduce(
+					(sum, cls) => sum + (cls.sectionsCount ?? 0),
+					0,
+				);
+				const totalStudents = classesRes.data.reduce(
+					(sum, cls) => sum + (cls.studentsCount ?? 0),
+					0,
+				);
+
+				let importJobs: Awaited<ReturnType<typeof listImportJobs>>["data"] = [];
+				if (user?.role === "admin") {
+					const schoolsRes = await listSchools();
+					const jobsBySchool = await Promise.all(
+						schoolsRes.data.map((school) =>
+							listImportJobs({ schoolId: school.id })
+								.then((res) => res.data)
+								.catch(() => []),
+						),
+					);
+					importJobs = jobsBySchool.flat();
+				} else {
+					const importsRes = await listImportJobs();
+					importJobs = importsRes.data;
+				}
+
+				const totalImports = importJobs.length;
+				const runningImports = importJobs.filter(
+					(job) => job.status === "pending" || job.status === "processing",
+				).length;
+
+				if (!cancelled) {
+					setStats({
+						totalClasses,
+						totalSections,
+						totalStudents,
+						totalImports,
+						runningImports,
+					});
+				}
+			} finally {
+				if (!cancelled) {
+					setLoading(false);
+				}
+			}
+		};
+
+		void loadStats();
+		return () => {
+			cancelled = true;
+		};
+	}, [user?.role]);
+
+	const importsBadgeLabel = useMemo(() => {
+		if (loading) return "Loading...";
+		if (stats.runningImports === 0) return "No running jobs";
+		return `${stats.runningImports} running`;
+	}, [loading, stats.runningImports]);
+
 	return (
 		<div className="min-h-screen bg-background">
 			<div className="mx-auto max-w-6xl px-4 py-10 lg:px-6">
@@ -23,10 +112,10 @@ export default function Home() {
 						<CardHeader>
 							<CardDescription>Total classes</CardDescription>
 							<CardTitle className="text-3xl font-semibold tabular-nums">
-								12
+								{loading ? "—" : stats.totalClasses.toLocaleString()}
 							</CardTitle>
 							<CardAction>
-								<Badge variant="outline">This month +2</Badge>
+								<Badge variant="outline">Live</Badge>
 							</CardAction>
 						</CardHeader>
 					</Card>
@@ -34,10 +123,10 @@ export default function Home() {
 						<CardHeader>
 							<CardDescription>Total sections</CardDescription>
 							<CardTitle className="text-3xl font-semibold tabular-nums">
-								48
+								{loading ? "—" : stats.totalSections.toLocaleString()}
 							</CardTitle>
 							<CardAction>
-								<Badge variant="outline">This month +6</Badge>
+								<Badge variant="outline">Live</Badge>
 							</CardAction>
 						</CardHeader>
 					</Card>
@@ -45,10 +134,10 @@ export default function Home() {
 						<CardHeader>
 							<CardDescription>Total students</CardDescription>
 							<CardTitle className="text-3xl font-semibold tabular-nums">
-								3,240
+								{loading ? "—" : stats.totalStudents.toLocaleString()}
 							</CardTitle>
 							<CardAction>
-								<Badge variant="outline">Today +14</Badge>
+								<Badge variant="outline">Live</Badge>
 							</CardAction>
 						</CardHeader>
 					</Card>
@@ -56,10 +145,10 @@ export default function Home() {
 						<CardHeader>
 							<CardDescription>Imports</CardDescription>
 							<CardTitle className="text-3xl font-semibold tabular-nums">
-								5
+								{loading ? "—" : stats.totalImports.toLocaleString()}
 							</CardTitle>
 							<CardAction>
-								<Badge variant="outline">2 running</Badge>
+								<Badge variant="outline">{importsBadgeLabel}</Badge>
 							</CardAction>
 						</CardHeader>
 					</Card>
