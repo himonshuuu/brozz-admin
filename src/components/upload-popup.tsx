@@ -21,7 +21,7 @@ import {
 import { API_BASE } from "@/lib/api/client";
 import {
 	formatFileSize,
-	uploadImagesZipStreamWithProgress,
+	uploadImagesZipMultipartWithProgress,
 	uploadImportWithProgress,
 } from "@/lib/api/import";
 import { useAuthStore } from "@/stores/useAuthStore";
@@ -257,8 +257,8 @@ export const UploadPopup = ({
 			if (data.imagesZip) {
 				setPhase("uploadingImages");
 				setProgressPct(0);
-				setProgressLabel("Uploading images ZIP...");
-				await uploadImagesZipStreamWithProgress(
+				setProgressLabel("Uploading images ZIP to storage...");
+				await uploadImagesZipMultipartWithProgress(
 					excelResult.jobId,
 					data.imagesZip,
 					{

@@ -42,12 +42,10 @@ export function validateFileSize(file: File): {
 
 export async function uploadImport(
 	excel: File,
-	imagesZip?: File,
 	opts?: { deferProcessing?: boolean; schoolId?: string },
 ) {
 	const form = new FormData();
 	form.append("excel", excel);
-	if (imagesZip) form.append("imagesZip", imagesZip);
 	if (opts?.deferProcessing !== undefined) {
 		form.append("deferProcessing", String(opts.deferProcessing));
 	}
@@ -146,23 +144,186 @@ export async function uploadImportWithProgress(
 	);
 }
 
-export async function uploadImagesZipStreamWithProgress(
+type MultipartInitResponse = {
+	jobId: string;
+	key: string;
+	uploadId: string;
+	partSize: number;
+};
+
+type MultipartPart = { ETag: string; PartNumber: number };
+
+export async function initImportImagesMultipartUpload(params: {
+	jobId: string;
+	fileName: string;
+	contentType: string;
+}) {
+	return apiFetch<{ success: true; data: MultipartInitResponse }>(
+		`/import/upload/images/multipart/init`,
+		{
+			method: "POST",
+			body: JSON.stringify(params),
+		},
+	);
+}
+
+export async function getImportImagesMultipartPartUrl(params: {
+	jobId: string;
+	key: string;
+	uploadId: string;
+	partNumber: number;
+}) {
+	return apiFetch<{ success: true; data: { url: string } }>(
+		`/import/upload/images/multipart/part-url`,
+		{
+			method: "POST",
+			body: JSON.stringify(params),
+		},
+	);
+}
+
+export async function completeImportImagesMultipartUpload(params: {
+	jobId: string;
+	key: string;
+	uploadId: string;
+	parts: MultipartPart[];
+}) {
+	return apiFetch<{ success: true; data: { jobId: string } }>(
+		`/import/upload/images/multipart/complete`,
+		{
+			method: "POST",
+			body: JSON.stringify(params),
+		},
+	);
+}
+
+export async function abortImportImagesMultipartUpload(params: {
+	jobId: string;
+	key: string;
+	uploadId: string;
+}) {
+	return apiFetch<{ success: true; data: { jobId: string } }>(
+		`/import/upload/images/multipart/abort`,
+		{
+			method: "POST",
+			body: JSON.stringify(params),
+		},
+	);
+}
+
+async function uploadPartWithRetries(params: {
+	url: string;
+	body: Blob;
+	contentType: string;
+	maxRetries: number;
+}): Promise<string> {
+	let attempt = 0;
+	let lastError: unknown;
+
+	while (attempt < params.maxRetries) {
+		attempt += 1;
+		try {
+			const response = await fetch(params.url, {
+				method: "PUT",
+				headers: {
+					"Content-Type": params.contentType,
+				},
+				body: params.body,
+			});
+			if (!response.ok) {
+				throw new Error(`Upload part failed (${response.status})`);
+			}
+			const etag = response.headers.get("etag") || response.headers.get("ETag");
+			if (!etag) {
+				throw new Error("Missing ETag from S3 upload part response");
+			}
+			return etag;
+		} catch (err) {
+			lastError = err;
+			if (attempt >= params.maxRetries) break;
+			await new Promise((resolve) =>
+				setTimeout(resolve, 500 * 2 ** (attempt - 1)),
+			);
+		}
+	}
+
+	throw lastError instanceof Error
+		? lastError
+		: new Error("Part upload failed");
+}
+
+export async function uploadImagesZipMultipartWithProgress(
 	jobId: string,
 	imagesZip: File,
 	opts?: { onProgress?: (loaded: number, total: number) => void },
 ) {
-	const token = window.localStorage.getItem("token");
-	if (!token) throw new Error("Not authenticated");
+	const init = await initImportImagesMultipartUpload({
+		jobId,
+		fileName: imagesZip.name,
+		contentType: imagesZip.type || "application/zip",
+	});
 
-	return uploadWithXhr<{ success: true; data: { jobId: string } }>(
-		`${API_BASE}/import/upload/images/stream?jobId=${encodeURIComponent(jobId)}`,
-		imagesZip,
-		token,
-		{
-			onProgress: opts?.onProgress,
-			contentType: imagesZip.type || "application/zip",
-		},
-	);
+	const { key, uploadId, partSize } = init.data;
+	const total = imagesZip.size;
+	const partCount = Math.ceil(total / partSize);
+	const maxParallel = 3;
+	const uploadedByPart = new Map<number, number>();
+
+	const reportProgress = () => {
+		if (!opts?.onProgress) return;
+		let loaded = 0;
+		for (const value of uploadedByPart.values()) loaded += value;
+		opts.onProgress(Math.min(loaded, total), total);
+	};
+
+	const queue = Array.from({ length: partCount }, (_, i) => i + 1);
+	const parts: MultipartPart[] = [];
+
+	const worker = async () => {
+		while (queue.length > 0) {
+			const partNumber = queue.shift();
+			if (!partNumber) return;
+			const start = (partNumber - 1) * partSize;
+			const end = Math.min(start + partSize, total);
+			const blob = imagesZip.slice(start, end);
+
+			const partUrlRes = await getImportImagesMultipartPartUrl({
+				jobId,
+				key,
+				uploadId,
+				partNumber,
+			});
+			const etag = await uploadPartWithRetries({
+				url: partUrlRes.data.url,
+				body: blob,
+				contentType: imagesZip.type || "application/zip",
+				maxRetries: 3,
+			});
+			uploadedByPart.set(partNumber, blob.size);
+			reportProgress();
+			parts.push({ ETag: etag, PartNumber: partNumber });
+		}
+	};
+
+	try {
+		await Promise.all(
+			Array.from({ length: Math.min(maxParallel, partCount) }, () => worker()),
+		);
+		parts.sort((a, b) => a.PartNumber - b.PartNumber);
+		await completeImportImagesMultipartUpload({
+			jobId,
+			key,
+			uploadId,
+			parts,
+		});
+	} catch (err) {
+		await abortImportImagesMultipartUpload({ jobId, key, uploadId }).catch(
+			() => {
+				// ignore abort failure
+			},
+		);
+		throw err;
+	}
 }
 
 export async function listImportJobs(params?: { schoolId?: string }) {
