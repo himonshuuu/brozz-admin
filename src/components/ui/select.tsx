@@ -55,7 +55,7 @@ function SelectTrigger({
       {...props}
     >
       {children}
-      <SelectPrimitive.Icon asChild>
+      <SelectPrimitive.Icon>
         <HugeiconsIcon
           icon={UnfoldMoreIcon}
           strokeWidth={2}

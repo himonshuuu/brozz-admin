@@ -48,7 +48,7 @@ export function LoginForm({
       toast.success("Logged in");
       // Redirect back to the page the user originally wanted, if any.
       const redirect =
-        window.sessionStorage.getItem("postLoginRedirect") || "/classes";
+        window.sessionStorage.getItem("postLoginRedirect") || "/datasets";
       window.sessionStorage.removeItem("postLoginRedirect");
       router.push(redirect);
     } catch (err: unknown) {
@@ -91,7 +91,13 @@ export function LoginForm({
                     Forgot your password?
                   </a>
                 </div>
-                <Input id="password" name="password" type="password" required disabled={loading} />
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  disabled={loading}
+                />
               </Field>
               <Field>
                 <Button type="submit" disabled={loading}>

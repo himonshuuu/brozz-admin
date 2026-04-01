@@ -1,4 +1,9 @@
 "use client";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useEffect, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -13,26 +18,20 @@ import { Label } from "@/components/ui/label";
 import {
 	Select,
 	SelectContent,
-	SelectGroup,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { API_BASE } from "@/lib/api/client";
+import { API_BASE, apiFetch } from "@/lib/api/client";
 import {
 	formatFileSize,
 	uploadImagesZipMultipartWithProgress,
 	uploadImportWithProgress,
 } from "@/lib/api/import";
 import { useAuthStore } from "@/stores/useAuthStore";
-import { useSchoolsStore } from "@/stores/useSchoolsStore";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
-import { toast } from "sonner";
-import { z } from "zod";
 
 const uploadPopupSchema = z.object({
+	orgId: z.string().optional(),
 	excel: z
 		.instanceof(File)
 		.optional()
@@ -80,14 +79,34 @@ export const UploadPopup = ({
 	const [progressLabel, setProgressLabel] = useState("");
 	const [excelSize, setExcelSize] = useState<string>("");
 	const [imagesZipSize, setImagesZipSize] = useState<string>("");
-	const [selectedSchoolId, setSelectedSchoolId] = useState<string | "">("");
 	const sseRef = useRef<EventSource | null>(null);
 	const toastIdRef = useRef<string | number | null>(null);
-	const user = useAuthStore((s) => s.user);
-	const { schools, fetchSchools } = useSchoolsStore();
 
-	const isAdmin = user?.role === "admin";
 	const isUploading = phase === "uploadingExcel" || phase === "uploadingImages";
+
+	const user = useAuthStore((s) => s.user);
+
+	const [orgs, setOrgs] = useState<
+		{ id: string; name: string; email: string }[]
+	>([]);
+	const [orgsLoading, setOrgsLoading] = useState(false);
+
+	useEffect(() => {
+		if (user?.role === "admin" && open) {
+			setOrgsLoading(true);
+			apiFetch<{
+				success: true;
+				data: { id: string; name: string; email: string }[];
+			}>("/auth/organizations")
+				.then((res) => {
+					if (res.success) {
+						setOrgs(res.data);
+					}
+				})
+				.catch(console.error)
+				.finally(() => setOrgsLoading(false));
+		}
+	}, [user?.role, open]);
 
 	useEffect(() => {
 		return () => {
@@ -95,12 +114,6 @@ export const UploadPopup = ({
 			sseRef.current = null;
 		};
 	}, []);
-
-	useEffect(() => {
-		if (open && isAdmin) {
-			void fetchSchools();
-		}
-	}, [open, isAdmin, fetchSchools]);
 
 	const form = useForm<z.infer<typeof uploadPopupSchema>>({
 		resolver: zodResolver(uploadPopupSchema),
@@ -113,8 +126,12 @@ export const UploadPopup = ({
 	const {
 		handleSubmit,
 		formState: { errors },
+		register,
 		setValue,
 	} = form;
+
+	const selectedOrgId = form.watch("orgId");
+	const selectedOrg = orgs.find((org) => org.id === selectedOrgId) ?? null;
 
 	const closeSse = () => {
 		sseRef.current?.close();
@@ -170,8 +187,8 @@ export const UploadPopup = ({
 			setProgressPct(pct);
 			setProgressLabel(
 				total > 0
-					? `Importing students ${processed}/${total} (${pct}%)`
-					: `Importing students ${processed} processed`,
+					? `Importing records ${processed}/${total} (${pct}%)`
+					: `Importing records ${processed} processed`,
 			);
 		});
 
@@ -222,17 +239,13 @@ export const UploadPopup = ({
 	};
 
 	const onSubmit = async (data: z.infer<typeof uploadPopupSchema>) => {
-		if (isAdmin && !selectedSchoolId) {
-			toast.error("Select school", {
-				description: "School is required for admin imports.",
-			});
-			return;
-		}
-
 		setLoading(true);
 		try {
 			if (!data.excel) {
 				throw new Error("Excel file is required");
+			}
+			if (user?.role === "admin" && !data.orgId?.trim()) {
+				throw new Error("Organization is required");
 			}
 
 			const hasImagesZip = Boolean(data.imagesZip);
@@ -241,11 +254,9 @@ export const UploadPopup = ({
 			setProgressPct(0);
 			setProgressLabel("Uploading Excel file...");
 
-			const schoolId = isAdmin ? selectedSchoolId : undefined;
-
 			const excelUpload = await uploadImportWithProgress(data.excel, {
 				deferProcessing: hasImagesZip,
-				schoolId,
+				orgId: data.orgId,
 				onProgress: (loaded, total) => {
 					const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
 					setProgressPct(pct);
@@ -278,9 +289,6 @@ export const UploadPopup = ({
 			form.reset();
 			setExcelSize("");
 			setImagesZipSize("");
-			if (!isAdmin) {
-				setSelectedSchoolId("");
-			}
 		} catch (e: unknown) {
 			setPhase("done");
 			setProgressLabel("Upload failed");
@@ -320,30 +328,40 @@ export const UploadPopup = ({
 				<form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 					<DialogDescription>
 						Upload an Excel file (<b>.xls</b> or <b>.xlsx</b>) to import
-						students. You can also upload an optional ZIP file containing
-						student images.
+						records. You can also upload an optional ZIP file containing images.
 					</DialogDescription>
 
-					{isAdmin && (
+					{user?.role === "admin" && (
 						<div className="flex flex-col gap-2">
-							<Label htmlFor="schoolId">School</Label>
-							<Select
-								value={selectedSchoolId}
-								onValueChange={setSelectedSchoolId}
-							>
-								<SelectTrigger id="schoolId">
-									<SelectValue placeholder="Select school" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectGroup>
-										{schools.map((school) => (
-											<SelectItem key={school.id} value={school.id}>
-												{school.name}
+								<Label htmlFor="orgId">Organization</Label>
+								<input type="hidden" {...register("orgId")} />
+								<Select
+									value={selectedOrgId || undefined}
+									onValueChange={(value) =>
+										form.setValue("orgId", value, {
+											shouldDirty: true,
+											shouldTouch: true,
+											shouldValidate: true,
+										})
+									}
+									disabled={loading || phase === "importing" || orgsLoading}
+								>
+									<SelectTrigger id="orgId" className="w-full">
+										<SelectValue placeholder="Select an organization" />
+									</SelectTrigger>
+									<SelectContent>
+										{orgs.map((org) => (
+											<SelectItem key={org.id} value={org.id}>
+												{org.name} ({org.email})
 											</SelectItem>
 										))}
-									</SelectGroup>
-								</SelectContent>
-							</Select>
+									</SelectContent>
+								</Select>
+								{errors.orgId && (
+									<p className="text-sm text-destructive">
+									{errors.orgId.message}
+								</p>
+							)}
 						</div>
 					)}
 

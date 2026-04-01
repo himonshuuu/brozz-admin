@@ -1,5 +1,9 @@
 "use client";
 
+import { REGEXP_ONLY_DIGITS_AND_CHARS } from "input-otp";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -15,18 +19,28 @@ import {
 	FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { toast } from "sonner";
 import {
 	InputOTP,
+	InputOTPGroup,
 	InputOTPSeparator,
 	InputOTPSlot,
-	InputOTPGroup,
 } from "@/components/ui/input-otp";
-import { REGEXP_ONLY_DIGITS_AND_CHARS } from "input-otp";
-import { login, schoolRegister, schoolResendOtp, schoolVerifyOtp } from "@/lib/api/auth";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import {
+	resendOtp as apiResendOtp,
+	verifyOtp as apiVerifyOtp,
+	login,
+	register,
+} from "@/lib/api/auth";
+import { cn } from "@/lib/utils";
+
+const SIGNUP_OTP_SESSION_KEY = "signup.pendingVerification";
 
 export function SignupForm({
 	className,
@@ -39,26 +53,60 @@ export function SignupForm({
 	const [pendingEmail, setPendingEmail] = useState("");
 	const [pendingPassword, setPendingPassword] = useState("");
 
-	async function registerSchool(e: React.FormEvent<HTMLFormElement>) {
+	useEffect(() => {
+		const rawState = window.sessionStorage.getItem(SIGNUP_OTP_SESSION_KEY);
+		if (!rawState) return;
+
+		try {
+			const state = JSON.parse(rawState) as { email?: string };
+			if (!state.email) return;
+			setPendingEmail(state.email);
+			setStep("verify");
+		} catch {
+			window.sessionStorage.removeItem(SIGNUP_OTP_SESSION_KEY);
+		}
+	}, []);
+
+	function persistPendingVerification(email: string) {
+		window.sessionStorage.setItem(
+			SIGNUP_OTP_SESSION_KEY,
+			JSON.stringify({ email }),
+		);
+	}
+
+	function clearPendingVerification() {
+		window.sessionStorage.removeItem(SIGNUP_OTP_SESSION_KEY);
+		setOtp("");
+		setPendingEmail("");
+		setPendingPassword("");
+		setStep("register");
+	}
+
+	async function registerOrganization(e: React.FormEvent<HTMLFormElement>) {
 		e.preventDefault();
 		const fd = new FormData(e.currentTarget);
 		const payload = {
 			email: String(fd.get("email") || ""),
 			password: String(fd.get("password") || ""),
 			name: String(fd.get("name") || ""),
-			address: String(fd.get("address") || ""),
-			city: String(fd.get("city") || ""),
-			state: String(fd.get("state") || ""),
-			zipCode: String(fd.get("zipCode") || ""),
-			country: String(fd.get("country") || ""),
-			mobileNumber: String(fd.get("mobileNumber") || ""),
+			organizationType: String(fd.get("organizationType") || "") as
+				| "organization"
+				| "college"
+				| "university"
+				| "coaching"
+				| "company"
+				| "ngo"
+				| "government"
+				| "other",
 		};
 
 		setLoading(true);
 		try {
-			await schoolRegister(payload);
+			await register(payload);
 			setPendingEmail(payload.email);
 			setPendingPassword(payload.password);
+			persistPendingVerification(payload.email);
+			setOtp("");
 			setStep("verify");
 			toast.success("OTP sent to your email");
 		} catch (err: unknown) {
@@ -70,11 +118,18 @@ export function SignupForm({
 		}
 	}
 
-	async function verifyOtp() {
+	async function handleVerifyOtp() {
 		if (!pendingEmail) return;
 		setLoading(true);
 		try {
-			await schoolVerifyOtp(pendingEmail, otp);
+			await apiVerifyOtp(pendingEmail, otp);
+			window.sessionStorage.removeItem(SIGNUP_OTP_SESSION_KEY);
+
+			if (!pendingPassword) {
+				toast.success("Account verified. Please login.");
+				router.push("/login");
+				return;
+			}
 
 			// auto-login after verify
 			const loginJson = await login(pendingEmail, pendingPassword);
@@ -86,7 +141,7 @@ export function SignupForm({
 			const token = loginJson.data?.token as string | undefined;
 			if (token) window.localStorage.setItem("token", token);
 			toast.success("Account verified");
-			router.push("/classes");
+			router.push("/datasets");
 		} catch (err: unknown) {
 			toast.error("Verification failed", {
 				description: err instanceof Error ? err.message : "Unknown error",
@@ -96,11 +151,11 @@ export function SignupForm({
 		}
 	}
 
-	async function resendOtp() {
+	async function handleResendOtp() {
 		if (!pendingEmail) return;
 		setLoading(true);
 		try {
-			await schoolResendOtp(pendingEmail);
+			await apiResendOtp(pendingEmail);
 			toast.success("OTP resent");
 		} catch (err: unknown) {
 			toast.error("Resend failed", {
@@ -116,21 +171,46 @@ export function SignupForm({
 			<Card>
 				<CardHeader className="text-center">
 					<CardTitle className="text-xl">
-						{step === "register" ? "Create school account" : "Verify OTP"}
+						{step === "register" ? "Create organization account" : "Verify OTP"}
 					</CardTitle>
 					<CardDescription>
 						{step === "register"
-							? "Register your school and verify email via OTP"
+							? "Register your organization and verify email via OTP"
 							: `Enter the OTP sent to ${pendingEmail}`}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
 					{step === "register" ? (
-						<form onSubmit={registerSchool}>
+						<form onSubmit={registerOrganization}>
 							<FieldGroup>
 								<Field>
-									<FieldLabel htmlFor="name">School Name</FieldLabel>
+									<FieldLabel htmlFor="name">Organization Name</FieldLabel>
 									<Input id="name" name="name" required disabled={loading} />
+								</Field>
+								<Field>
+									<FieldLabel htmlFor="organizationType">
+										Organization Type
+									</FieldLabel>
+									<Select
+										name="organizationType"
+										required
+										disabled={loading}
+										defaultValue="organization"
+									>
+										<SelectTrigger id="organizationType" className="w-full">
+											<SelectValue placeholder="Select organization type" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="organization">Organization</SelectItem>
+											<SelectItem value="college">College</SelectItem>
+											<SelectItem value="university">University</SelectItem>
+											<SelectItem value="coaching">Coaching</SelectItem>
+											<SelectItem value="company">Company</SelectItem>
+											<SelectItem value="ngo">NGO</SelectItem>
+											<SelectItem value="government">Government</SelectItem>
+											<SelectItem value="other">Other</SelectItem>
+										</SelectContent>
+									</Select>
 								</Field>
 								<Field>
 									<FieldLabel htmlFor="email">Email</FieldLabel>
@@ -141,68 +221,6 @@ export function SignupForm({
 										required
 										disabled={loading}
 									/>
-								</Field>
-								<Field>
-									<FieldLabel htmlFor="mobileNumber">Mobile Number</FieldLabel>
-									<Input
-										id="mobileNumber"
-										name="mobileNumber"
-										required
-										disabled={loading}
-									/>
-								</Field>
-								<Field>
-									<FieldLabel htmlFor="address">Address</FieldLabel>
-									<Input
-										id="address"
-										name="address"
-										required
-										disabled={loading}
-									/>
-								</Field>
-								<Field>
-									<Field className="grid grid-cols-2 gap-4">
-										<Field>
-											<FieldLabel htmlFor="city">City</FieldLabel>
-											<Input
-												id="city"
-												name="city"
-												required
-												disabled={loading}
-											/>
-										</Field>
-										<Field>
-											<FieldLabel htmlFor="state">State</FieldLabel>
-											<Input
-												id="state"
-												name="state"
-												required
-												disabled={loading}
-											/>
-										</Field>
-									</Field>
-								</Field>
-								<Field>
-									<Field className="grid grid-cols-2 gap-4">
-										<Field>
-											<FieldLabel htmlFor="zipCode">Zip Code</FieldLabel>
-											<Input
-												id="zipCode"
-												name="zipCode"
-												required
-												disabled={loading}
-											/>
-										</Field>
-										<Field>
-											<FieldLabel htmlFor="country">Country</FieldLabel>
-											<Input
-												id="country"
-												name="country"
-												required
-												disabled={loading}
-											/>
-										</Field>
-									</Field>
 								</Field>
 								<Field>
 									<FieldLabel htmlFor="password">Password</FieldLabel>
@@ -240,6 +258,7 @@ export function SignupForm({
 										value={otp}
 										onChange={(value) => setOtp(value)}
 										disabled={loading}
+										containerClassName="justify-start sm:justify-center"
 									>
 										<InputOTPGroup>
 											<InputOTPSlot index={0} />
@@ -253,21 +272,35 @@ export function SignupForm({
 											<InputOTPSlot index={5} />
 										</InputOTPGroup>
 									</InputOTP>
+									<FieldDescription>
+										Reloading this page will keep you on verification, but you
+										still need to enter the OTP again.
+									</FieldDescription>
 								</Field>
 								<Field>
-									<div className="flex gap-2">
+									<div className="flex flex-col gap-2 sm:flex-row">
 										<Button
-											onClick={verifyOtp}
-											disabled={loading || otp.trim().length === 0}
+											type="button"
+											onClick={handleVerifyOtp}
+											disabled={loading || otp.trim().length !== 6}
 										>
 											{loading ? "Verifying..." : "Verify"}
 										</Button>
 										<Button
+											type="button"
 											variant="outline"
-											onClick={resendOtp}
+											onClick={handleResendOtp}
 											disabled={loading}
 										>
 											Resend OTP
+										</Button>
+										<Button
+											type="button"
+											variant="ghost"
+											onClick={clearPendingVerification}
+											disabled={loading}
+										>
+											Start over
 										</Button>
 									</div>
 								</Field>

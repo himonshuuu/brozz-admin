@@ -8,20 +8,20 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export default function RootLayout({
-	children,
+  children,
 }: Readonly<{
-	children: React.ReactNode;
+  children: React.ReactNode;
 }>) {
-	return (
-		<html lang="en" suppressHydrationWarning>
-			<body className={cn("antialiased font-sans", inter.variable)}>
-				<ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-					<TooltipProvider>
-						<Toaster />
-						{children}
-					</TooltipProvider>
-				</ThemeProvider>
-			</body>
-		</html>
-	);
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body className={cn("antialiased font-sans", inter.variable)}>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+          <TooltipProvider>
+            <Toaster />
+            {children}
+          </TooltipProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  );
 }
