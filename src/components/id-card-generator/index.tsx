@@ -1,8 +1,10 @@
 "use client";
 
+import { saveAs } from "file-saver";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMemoizedCallback } from "@/hooks/use-memoized-callback";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -20,11 +22,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
+import { useMemoizedCallback } from "@/hooks/use-memoized-callback";
+import { API_BASE, apiFetch } from "@/lib/api/client";
 import * as dynamicApi from "@/lib/api/dynamic";
-import { toast } from "sonner";
-import { saveAs } from "file-saver";
-import { apiFetch } from "@/lib/api/client";
 import { useAuthStore } from "@/stores/useAuthStore";
 
 type ElementType = dynamicApi.DynamicCanvasElement;
@@ -67,15 +67,19 @@ function isImageField(header: string) {
   return IMAGE_FIELD_KEYS.has(normalizeFieldKey(header));
 }
 
+const NEW_TEMPLATE_VALUE = "__new__";
+
 export function IdCardEditor() {
   const [datasets, setDatasets] = useState<dynamicApi.DatasetDto[]>([]);
   const [datasetId, setDatasetId] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [records, setRecords] = useState<dynamicApi.DynamicRecordDto[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const [previewRecordId, setPreviewRecordId] = useState<string>("");
   const [templates, setTemplates] = useState<dynamicApi.DynamicTemplateDto[]>(
     [],
   );
+  const [fonts, setFonts] = useState<dynamicApi.TemplateFontDto[]>([]);
   const [templateId, setTemplateId] = useState("");
   const [templateName, setTemplateName] = useState("Default Template");
   const [backgroundImage, setBackgroundImage] = useState<string>("");
@@ -87,35 +91,92 @@ export function IdCardEditor() {
   const [activeElementId, setActiveElementId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const canvasViewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const resizeOrigin = useRef({ left: 0, top: 0 });
+  const [canvasViewportWidth, setCanvasViewportWidth] = useState(DEFAULT_WIDTH);
 
   const activeElement = useMemo(
     () => elements.find((e) => e.id === activeElementId) ?? null,
     [elements, activeElementId],
   );
+  const previewRecord = useMemo(
+    () =>
+      records.find((record) => record.id === previewRecordId) ??
+      records[0] ??
+      null,
+    [previewRecordId, records],
+  );
+  const fontFaceCss = useMemo(
+    () =>
+      fonts
+        .map(
+          (font) =>
+            `@font-face{font-family:'${font.name.replace(/'/g, "\\'")}';src:url('${API_BASE}${font.url}');}`,
+        )
+        .join("\n"),
+    [fonts],
+  );
 
   const user = useAuthStore((s) => s.user);
-  const [orgs, setOrgs] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [orgs, setOrgs] = useState<
+    { id: string; name: string; email: string }[]
+  >([]);
   const [orgId, setOrgId] = useState<string>("");
   const [orgsLoading, setOrgsLoading] = useState(false);
-  const currentDataset = datasets.find((dataset) => dataset.id === datasetId) ?? null;
+  const currentDataset =
+    datasets.find((dataset) => dataset.id === datasetId) ?? null;
   const effectiveOrgId =
-    user?.role === "admin" ? (orgId || currentDataset?.orgId || "") : (user?.id ?? "");
+    user?.role === "admin"
+      ? orgId || currentDataset?.orgId || ""
+      : (user?.id ?? "");
 
   useEffect(() => {
     if (user?.role === "admin") {
       setOrgsLoading(true);
-      apiFetch<{ success: true; data: { id: string; name: string; email: string }[] }>("/auth/organizations")
-        .then((res) => { if (res.success) setOrgs(res.data); })
+      apiFetch<{
+        success: true;
+        data: { id: string; name: string; email: string }[];
+      }>("/auth/organizations")
+        .then((res) => {
+          if (res.success) setOrgs(res.data);
+        })
         .catch(console.error)
         .finally(() => setOrgsLoading(false));
     }
   }, [user?.role]);
 
+  useEffect(() => {
+    dynamicApi
+      .listTemplateFonts()
+      .then((res) => setFonts(res.data))
+      .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    const node = canvasViewportRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setCanvasViewportWidth(entry.contentRect.width);
+    });
+
+    observer.observe(node);
+    setCanvasViewportWidth(node.getBoundingClientRect().width || DEFAULT_WIDTH);
+
+    return () => observer.disconnect();
+  }, []);
+
   const loadDatasets = useMemoizedCallback(async () => {
-    const payload: any = { page: 1, pageSize: 100 };
+    const payload: { page: number; pageSize: number; orgId?: string } = {
+      page: 1,
+      pageSize: 100,
+    };
     if (user?.role !== "admin") {
       payload.orgId = user?.id;
     } else if (orgId) {
@@ -123,7 +184,7 @@ export function IdCardEditor() {
     }
     const res = await dynamicApi.listDatasets(payload);
     setDatasets(res.data.items);
-    
+
     if (datasetId && !res.data.items.find((d) => d.id === datasetId)) {
       setDatasetId("");
       setTemplateId("");
@@ -138,56 +199,45 @@ export function IdCardEditor() {
     }
   }, [datasetId, orgId, user?.id, user?.role]);
 
-  const loadRecordsAndVariables = useMemoizedCallback(async (targetDatasetId: string) => {
-    if (!targetDatasetId) return;
-    const targetDataset =
-      datasets.find((dataset) => dataset.id === targetDatasetId) ?? null;
-    const scopedOrgId =
-      user?.role === "admin"
-        ? (orgId || targetDataset?.orgId || "")
-        : (user?.id ?? "");
-    setLoading(true);
-    try {
-      const [recordsRes, variablesRes, templatesRes] = await Promise.all([
-        dynamicApi.listRecords(targetDatasetId, {
-          page: 1,
-          pageSize: 200,
-          orgId: scopedOrgId || undefined,
-        }),
-        dynamicApi.getTemplateVariables(targetDatasetId, {
-          orgId: scopedOrgId || undefined,
-        }),
-        dynamicApi.listTemplates({
-          datasetId: targetDatasetId,
-          orgId: scopedOrgId || undefined,
-        }),
-      ]);
-      setRecords(recordsRes.data.items);
-      setHeaders(variablesRes.data.headers);
-      setTemplates(templatesRes.data);
-      if (templatesRes.data[0]) {
-        const t = templatesRes.data[0];
-        setTemplateId(t.id);
-        setTemplateName(t.name);
-        setBackgroundImage(t.canvas.backgroundImage);
-        setCanvasSize({
-          width: t.canvas.width || DEFAULT_WIDTH,
-          height: t.canvas.height || DEFAULT_HEIGHT,
-        });
-        setElements(t.canvas.elements);
-      } else {
-        setTemplateId("");
-        setElements([]);
-        setBackgroundImage("");
-        setCanvasSize({
-          width: DEFAULT_WIDTH,
-          height: DEFAULT_HEIGHT,
-        });
+  const loadRecordsAndVariables = useMemoizedCallback(
+    async (targetDatasetId: string) => {
+      if (!targetDatasetId) return;
+      const targetDataset =
+        datasets.find((dataset) => dataset.id === targetDatasetId) ?? null;
+      const scopedOrgId =
+        user?.role === "admin"
+          ? orgId || targetDataset?.orgId || ""
+          : (user?.id ?? "");
+      setLoading(true);
+      try {
+        const [recordsRes, variablesRes, templatesRes] = await Promise.all([
+          dynamicApi.listRecords(targetDatasetId, {
+            page: 1,
+            pageSize: 200,
+            orgId: scopedOrgId || undefined,
+          }),
+          dynamicApi.getTemplateVariables(targetDatasetId, {
+            orgId: scopedOrgId || undefined,
+          }),
+          dynamicApi.listTemplates({
+            datasetId: targetDatasetId,
+            orgId: scopedOrgId || undefined,
+          }),
+        ]);
+        setRecords(recordsRes.data.items);
+        setHeaders(variablesRes.data.headers);
+        setTemplates(templatesRes.data);
+        const nextTemplate =
+          templatesRes.data.find((template) => template.id === templateId) ??
+          templatesRes.data[0] ??
+          null;
+        applyTemplate(nextTemplate);
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [datasets, orgId, user?.id, user?.role]);
+    },
+    [datasets, orgId, templateId, user?.id, user?.role],
+  );
 
   useEffect(() => {
     void loadDatasets();
@@ -196,8 +246,81 @@ export function IdCardEditor() {
   useEffect(() => {
     if (!datasetId) return;
     setSelectedRecordIds([]);
+    setPreviewRecordId("");
     void loadRecordsAndVariables(datasetId);
   }, [datasetId, loadRecordsAndVariables]);
+
+  function resolvePreviewValue(template: string) {
+    if (!previewRecord) return template;
+
+    return template.replace(/{{\s*([^}]+)\s*}}/g, (_match, token) => {
+      const key = String(token).trim();
+      const normalizedKey = normalizeFieldKey(key);
+
+      if (Object.hasOwn(previewRecord.data, key)) {
+        return String(previewRecord.data[key] ?? "");
+      }
+
+      const dataEntry = Object.entries(previewRecord.data).find(
+        ([field]) => normalizeFieldKey(field) === normalizedKey,
+      );
+      if (dataEntry) return String(dataEntry[1] ?? "");
+
+      if (Object.hasOwn(previewRecord.normalizedData, key)) {
+        return String(previewRecord.normalizedData[key] ?? "");
+      }
+
+      if (Object.hasOwn(previewRecord.normalizedData, normalizedKey)) {
+        return String(previewRecord.normalizedData[normalizedKey] ?? "");
+      }
+
+      return "";
+    });
+  }
+
+  function resolvePreviewImageSrc(template: string) {
+    const resolved = resolvePreviewValue(template).trim();
+    if (!resolved || !previewRecord) return null;
+
+    if (
+      resolved.startsWith("http://") ||
+      resolved.startsWith("https://") ||
+      resolved.startsWith("data:image/")
+    ) {
+      return resolved;
+    }
+
+    if (previewRecord.photoKey && previewRecord.photoKey === resolved) {
+      return previewRecord.photoUrl;
+    }
+
+    return null;
+  }
+
+  function applyTemplate(template: dynamicApi.DynamicTemplateDto | null) {
+    if (!template) {
+      setTemplateId("");
+      setTemplateName("Default Template");
+      setBackgroundImage("");
+      setCanvasSize({
+        width: DEFAULT_WIDTH,
+        height: DEFAULT_HEIGHT,
+      });
+      setElements([]);
+      setActiveElementId(null);
+      return;
+    }
+
+    setTemplateId(template.id);
+    setTemplateName(template.name);
+    setBackgroundImage(template.canvas.backgroundImage);
+    setCanvasSize({
+      width: template.canvas.width || DEFAULT_WIDTH,
+      height: template.canvas.height || DEFAULT_HEIGHT,
+    });
+    setElements(template.canvas.elements);
+    setActiveElementId(null);
+  }
 
   function addVariableElement(header: string) {
     const item: ElementType = {
@@ -254,6 +377,22 @@ export function IdCardEditor() {
     );
   }
 
+  function clampElement(el: ElementType, nextX: number, nextY: number) {
+    if (el.type !== "image") {
+      return {
+        x: Math.max(0, Math.min(100, nextX)),
+        y: Math.max(0, Math.min(100, nextY)),
+      };
+    }
+
+    const halfWidth = (el.width ?? 24) / 2;
+    const halfHeight = (el.height ?? 40) / 2;
+    return {
+      x: Math.max(halfWidth, Math.min(100 - halfWidth, nextX)),
+      y: Math.max(halfHeight, Math.min(100 - halfHeight, nextY)),
+    };
+  }
+
   function onFieldPointerDown(e: React.PointerEvent, id: string) {
     if (!canvasRef.current) return;
     e.preventDefault();
@@ -272,25 +411,80 @@ export function IdCardEditor() {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
+  function onResizeHandlePointerDown(e: React.PointerEvent, id: string) {
+    if (!canvasRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = canvasRef.current.getBoundingClientRect();
+    const target = elements.find((x) => x.id === id);
+    if (!target || target.type !== "image") return;
+
+    const widthPx = ((target.width ?? 24) / 100) * rect.width;
+    const heightPx = ((target.height ?? 40) / 100) * rect.height;
+    const centerX = (target.x / 100) * rect.width;
+    const centerY = (target.y / 100) * rect.height;
+    resizeOrigin.current = {
+      left: centerX - widthPx / 2,
+      top: centerY - heightPx / 2,
+    };
+    setResizingId(id);
+    setActiveElementId(id);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
   function onCanvasPointerMove(e: React.PointerEvent) {
-    if (!draggingId || !canvasRef.current) return;
+    if (!canvasRef.current) return;
     e.preventDefault();
     const rect = canvasRef.current.getBoundingClientRect();
+
+    if (resizingId) {
+      const rawWidth = e.clientX - rect.left - resizeOrigin.current.left;
+      const rawHeight = e.clientY - rect.top - resizeOrigin.current.top;
+      const widthPx = Math.max(
+        24,
+        Math.min(rect.width - resizeOrigin.current.left, rawWidth),
+      );
+      const heightPx = Math.max(
+        24,
+        Math.min(rect.height - resizeOrigin.current.top, rawHeight),
+      );
+
+      setElements((prev) =>
+        prev.map((el) => {
+          if (el.id !== resizingId || el.type !== "image") return el;
+          const width = Math.max(1, (widthPx / rect.width) * 100);
+          const height = Math.max(1, (heightPx / rect.height) * 100);
+          return {
+            ...el,
+            width,
+            height,
+            x: ((resizeOrigin.current.left + widthPx / 2) / rect.width) * 100,
+            y: ((resizeOrigin.current.top + heightPx / 2) / rect.height) * 100,
+          };
+        }),
+      );
+      return;
+    }
+
+    if (!draggingId) return;
     const centerX = e.clientX - rect.left - dragOffset.current.x;
     const centerY = e.clientY - rect.top - dragOffset.current.y;
     const x = Math.max(0, Math.min(100, (centerX / rect.width) * 100));
     const y = Math.max(0, Math.min(100, (centerY / rect.height) * 100));
     setElements((prev) =>
-      prev.map((el) => (el.id === draggingId ? { ...el, x, y } : el)),
+      prev.map((el) =>
+        el.id === draggingId ? { ...el, ...clampElement(el, x, y) } : el,
+      ),
     );
   }
 
   function onCanvasPointerUp(e: React.PointerEvent) {
-    if (!draggingId) return;
+    if (!draggingId && !resizingId) return;
     try {
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {}
     setDraggingId(null);
+    setResizingId(null);
   }
 
   async function saveTemplate() {
@@ -309,12 +503,13 @@ export function IdCardEditor() {
 
     try {
       if (templateId) {
-        await dynamicApi.updateTemplate(templateId, {
+        const updated = await dynamicApi.updateTemplate(templateId, {
           orgId: effectiveOrgId || undefined,
           name: templateName,
           canvas,
           isDefault: true,
         });
+        applyTemplate(updated.data);
         toast.success("Template updated");
       } else {
         const created = await dynamicApi.createTemplate({
@@ -324,7 +519,7 @@ export function IdCardEditor() {
           canvas,
           isDefault: true,
         });
-        setTemplateId(created.data.id);
+        applyTemplate(created.data);
         toast.success("Template saved");
       }
       const refreshed = await dynamicApi.listTemplates({
@@ -367,14 +562,19 @@ export function IdCardEditor() {
 
   const selectedAll =
     records.length > 0 && selectedRecordIds.length === records.length;
+  const canvasScale = Math.min(
+    1,
+    Math.max(0.1, canvasViewportWidth / canvasSize.width),
+  );
 
   return (
     <div className="flex flex-col gap-4 h-full p-4 overflow-auto">
+      {fontFaceCss ? <style>{fontFaceCss}</style> : null}
       <div className="flex flex-wrap items-center gap-3">
         {user?.role === "admin" && (
-          <Select 
-            value={orgId || "all"} 
-            onValueChange={(val) => setOrgId(val === "all" ? "" : val)} 
+          <Select
+            value={orgId || "all"}
+            onValueChange={(val) => setOrgId(val === "all" ? "" : val)}
             disabled={orgsLoading}
           >
             <SelectTrigger className="w-[220px]">
@@ -405,26 +605,21 @@ export function IdCardEditor() {
         </Select>
 
         <Select
-          value={templateId || ""}
+          value={templateId || NEW_TEMPLATE_VALUE}
           onValueChange={(id) => {
-            setTemplateId(id);
-            const selected = templates.find((t) => t.id === id);
-            if (selected) {
-              setTemplateName(selected.name);
-              setBackgroundImage(selected.canvas.backgroundImage);
-              setCanvasSize({
-                width: selected.canvas.width || DEFAULT_WIDTH,
-                height: selected.canvas.height || DEFAULT_HEIGHT,
-              });
-              setElements(selected.canvas.elements);
+            if (id === NEW_TEMPLATE_VALUE) {
+              applyTemplate(null);
+              return;
             }
+            const selected = templates.find((t) => t.id === id) ?? null;
+            applyTemplate(selected);
           }}
-          disabled={templates.length === 0}
         >
           <SelectTrigger className="w-[280px]">
             <SelectValue placeholder="Select saved template" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={NEW_TEMPLATE_VALUE}>New Template</SelectItem>
             {templates.map((template) => (
               <SelectItem key={template.id} value={template.id}>
                 {template.name}
@@ -451,6 +646,26 @@ export function IdCardEditor() {
           className="max-w-[260px]"
         />
 
+        <Select
+          value={previewRecord?.id ?? "__none__"}
+          onValueChange={(value) =>
+            setPreviewRecordId(value === "__none__" ? "" : value)
+          }
+          disabled={records.length === 0}
+        >
+          <SelectTrigger className="w-[240px]">
+            <SelectValue placeholder="Preview record" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">No Preview Data</SelectItem>
+            {records.map((record) => (
+              <SelectItem key={record.id} value={record.id}>
+                Row {record.rowIndex + 1}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <div className="flex-1" />
         <Button variant="outline" onClick={() => void saveTemplate()}>
           Save Template
@@ -463,7 +678,7 @@ export function IdCardEditor() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[260px_1fr_300px] gap-4 min-h-[620px]">
+      <div className="grid grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)_280px] 2xl:grid-cols-[260px_minmax(0,1fr)_300px] gap-4 min-h-[620px]">
         <div className="border rounded-md p-3 space-y-3">
           <div className="text-sm font-medium">Available Fields</div>
           <div className="space-y-1 max-h-[500px] overflow-auto">
@@ -491,57 +706,121 @@ export function IdCardEditor() {
         </div>
 
         <div className="border rounded-md p-3 overflow-auto">
-          <div
-            ref={canvasRef}
-            className="relative bg-white border overflow-hidden mx-auto"
-            style={{
-              width: canvasSize.width,
-              minHeight: canvasSize.height,
-            }}
-            onPointerMove={onCanvasPointerMove}
-            onPointerUp={onCanvasPointerUp}
-          >
-            {backgroundImage ? (
-              <img
-                src={backgroundImage}
-                alt="template"
-                className="w-full h-auto pointer-events-none"
-              />
-            ) : (
+          <div ref={canvasViewportRef} className="mx-auto w-fit max-w-fit">
+            <div
+              className="mx-auto"
+              style={{
+                width: canvasSize.width * canvasScale,
+                height: canvasSize.height * canvasScale,
+              }}
+            >
               <div
-                className="flex items-center justify-center text-muted-foreground text-sm"
-                style={{ height: canvasSize.height }}
-              >
-                Upload template image
-              </div>
-            )}
-            {elements.map((el) => (
-              <div
-                key={el.id}
-                onPointerDown={(e) => onFieldPointerDown(e, el.id)}
-                onClick={() => setActiveElementId(el.id)}
-                className={`absolute cursor-grab select-none ${activeElementId === el.id ? "ring-2 ring-primary" : "ring-1 ring-border"}`}
+                ref={canvasRef}
+                className="relative origin-top-left bg-white border overflow-hidden"
                 style={{
-                  left: `${el.x}%`,
-                  top: `${el.y}%`,
-                  transform: "translate(-50%, -50%)",
-                  padding: el.type === "text" ? "2px 6px" : undefined,
-                  width: el.type === "image" ? `${el.width ?? 24}%` : undefined,
-                  height:
-                    el.type === "image" ? `${el.height ?? 40}%` : undefined,
-                  background:
-                    el.type === "image"
-                      ? "rgba(0,0,0,0.08)"
-                      : "rgba(255,255,255,0.8)",
-                  fontSize:
-                    el.type === "text" ? `${el.fontSize ?? 2.2}cqw` : undefined,
-                  fontWeight: el.fontWeight,
-                  color: el.color,
+                  width: canvasSize.width,
+                  height: canvasSize.height,
+                  transform: `scale(${canvasScale})`,
                 }}
+                onPointerMove={onCanvasPointerMove}
+                onPointerUp={onCanvasPointerUp}
               >
-                {el.type === "text" ? el.value : `IMG ${el.value}`}
+                {backgroundImage ? (
+                  <img
+                    src={backgroundImage}
+                    alt="template"
+                    className="pointer-events-none absolute inset-0 h-full w-full object-fill"
+                  />
+                ) : (
+                  <div
+                    className="flex items-center justify-center text-muted-foreground text-sm"
+                    style={{ height: canvasSize.height }}
+                  >
+                    Upload template image
+                  </div>
+                )}
+                {elements.map((el) =>
+                  (() => {
+                    const previewText =
+                      resolvePreviewValue(el.value) || el.value;
+                    const previewImageSrc =
+                      el.type === "image"
+                        ? resolvePreviewImageSrc(el.value)
+                        : null;
+
+                    return (
+                      <div
+                        key={el.id}
+                        onPointerDown={(e) => onFieldPointerDown(e, el.id)}
+                        onClick={() => setActiveElementId(el.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setActiveElementId(el.id);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        className={`absolute select-none ${el.type === "image" ? "cursor-grab" : "cursor-move"} ${activeElementId === el.id ? "ring-2 ring-primary" : "ring-1 ring-border"}`}
+                        style={{
+                          left: `${el.x}%`,
+                          top: `${el.y}%`,
+                          transform: "translate(-50%, -50%)",
+                          padding: el.type === "text" ? "2px 6px" : undefined,
+                          width:
+                            el.type === "image"
+                              ? `${el.width ?? 24}%`
+                              : undefined,
+                          height:
+                            el.type === "image"
+                              ? `${el.height ?? 40}%`
+                              : undefined,
+                          background:
+                            el.type === "image"
+                              ? "rgba(0,0,0,0.08)"
+                              : "rgba(255,255,255,0.8)",
+                          fontSize:
+                            el.type === "text"
+                              ? `${Math.max(8, Math.round((canvasSize.width * (el.fontSize ?? 2.4)) / 100))}px`
+                              : undefined,
+                          fontFamily:
+                            el.type === "text"
+                              ? (el.fontFamily ?? "inherit")
+                              : undefined,
+                          fontWeight: el.fontWeight,
+                          color: el.color,
+                          lineHeight: el.type === "text" ? 1 : undefined,
+                          whiteSpace: el.type === "text" ? "pre" : undefined,
+                        }}
+                      >
+                        {el.type === "text" ? (
+                          previewText
+                        ) : previewImageSrc ? (
+                          <img
+                            src={previewImageSrc}
+                            alt={el.value}
+                            className="h-full w-full object-cover"
+                            draggable={false}
+                          />
+                        ) : (
+                          `IMG ${previewText}`
+                        )}
+                        {el.type === "image" ? (
+                          <button
+                            type="button"
+                            aria-label="Resize image"
+                            onPointerDown={(e) =>
+                              onResizeHandlePointerDown(e, el.id)
+                            }
+                            className="absolute -bottom-2 -right-2 h-4 w-4 cursor-se-resize rounded-full border border-primary bg-background shadow-sm"
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })(),
+                )}
               </div>
-            ))}
+            </div>
           </div>
         </div>
 
@@ -578,9 +857,31 @@ export function IdCardEditor() {
               </div>
               {activeElement.type === "text" ? (
                 <>
+                  <Label>Font Family</Label>
+                  <Select
+                    value={activeElement.fontFamily ?? "__system__"}
+                    onValueChange={(value) =>
+                      updateActive({
+                        fontFamily: value === "__system__" ? undefined : value,
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select font" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__system__">System Default</SelectItem>
+                      {fonts.map((font) => (
+                        <SelectItem key={font.fileName} value={font.name}>
+                          {font.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Label>Font Size (% of width)</Label>
                   <Input
                     type="number"
+                    step="0.1"
                     value={activeElement.fontSize ?? 2.2}
                     onChange={(e) =>
                       updateActive({ fontSize: Number(e.target.value) || 2.2 })

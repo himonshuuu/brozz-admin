@@ -19,8 +19,14 @@ export type DynamicRecordDto = {
   data: Record<string, string | number | boolean | null>;
   normalizedData: Record<string, string | number | boolean | null>;
   photoKey: string | null;
+  photoUrl: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type UploadedRecordImageDto = {
+  key: string;
+  url: string;
 };
 
 export type DynamicCanvasElement = {
@@ -29,6 +35,7 @@ export type DynamicCanvasElement = {
   value: string;
   x: number;
   y: number;
+  fontFamily?: string;
   fontSize?: number;
   fontWeight?: "normal" | "bold";
   color?: string;
@@ -54,6 +61,12 @@ export type DynamicTemplateDto = {
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type TemplateFontDto = {
+  name: string;
+  fileName: string;
+  url: string;
 };
 
 export async function uploadDatasetExcel(
@@ -167,6 +180,23 @@ export async function updateRecord(
   );
 }
 
+export async function uploadRecordImage(
+  file: File,
+  params?: { orgId?: string },
+) {
+  const form = new FormData();
+  form.append("image", file);
+  if (params?.orgId) form.append("orgId", params.orgId);
+
+  return apiFetch<{ success: true; data: UploadedRecordImageDto }>(
+    "/datasets/upload-image",
+    {
+      method: "POST",
+      body: form,
+    },
+  );
+}
+
 export async function deleteRecord(
   recordId: string,
   params?: { orgId?: string },
@@ -233,6 +263,12 @@ export async function listTemplates(params?: {
   );
 }
 
+export async function listTemplateFonts() {
+  return apiFetch<{ success: true; data: TemplateFontDto[] }>(
+    "/templates/fonts",
+  );
+}
+
 export async function createTemplate(body: {
   datasetId?: string;
   orgId?: string;
@@ -248,7 +284,12 @@ export async function createTemplate(body: {
 
 export async function updateTemplate(
   templateId: string,
-  body: { orgId?: string; name?: string; canvas?: DynamicCanvas; isDefault?: boolean },
+  body: {
+    orgId?: string;
+    name?: string;
+    canvas?: DynamicCanvas;
+    isDefault?: boolean;
+  },
 ) {
   return apiFetch<{ success: true; data: DynamicTemplateDto }>(
     `/templates/${templateId}`,

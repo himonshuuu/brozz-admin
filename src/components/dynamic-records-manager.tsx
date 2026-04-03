@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMemoizedCallback } from "@/hooks/use-memoized-callback";
+import { toast } from "sonner";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -27,14 +29,58 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useMemoizedCallback } from "@/hooks/use-memoized-callback";
 import * as dynamicApi from "@/lib/api/dynamic";
-import { toast } from "sonner";
 
 type ScalarValue = string | number | boolean | null;
 
 type Props = {
   orgId?: string;
 };
+
+const IMAGE_FIELD_KEYS = new Set([
+  "photo",
+  "photo_url",
+  "photo_path",
+  "photo_key",
+  "image",
+  "image_url",
+  "image_path",
+  "image_key",
+  "avatar",
+  "avatar_url",
+  "avatar_path",
+  "barcode",
+  "barcode_url",
+  "barcode_path",
+  "qr",
+  "qr_code",
+  "qr_code_url",
+  "qr_code_path",
+  "logo",
+  "logo_url",
+  "logo_path",
+]);
+
+function normalizeFieldKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "");
+}
+
+function isImageField(header: string) {
+  return IMAGE_FIELD_KEYS.has(normalizeFieldKey(header));
+}
+
+function isRenderableImageValue(value: string) {
+  return (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("data:image/")
+  );
+}
 
 export function DynamicFormDialog(props: {
   open: boolean;
@@ -43,10 +89,15 @@ export function DynamicFormDialog(props: {
   requiredFields: string[];
   headerMap: Record<string, string>;
   editingRecord?: dynamicApi.DynamicRecordDto | null;
+  orgId?: string;
   onSubmit: (data: Record<string, ScalarValue>) => Promise<void>;
 }) {
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [uploadingField, setUploadingField] = useState<string | null>(null);
+  const [uploadedPreviewUrls, setUploadedPreviewUrls] = useState<
+    Record<string, string>
+  >({});
 
   useEffect(() => {
     if (!props.open) return;
@@ -55,6 +106,7 @@ export function DynamicFormDialog(props: {
       initial[header] = String(props.editingRecord?.data?.[header] ?? "");
     }
     setForm(initial);
+    setUploadedPreviewUrls({});
   }, [props.open, props.headers, props.editingRecord]);
 
   const requiredRawHeaders = useMemo(() => {
@@ -95,18 +147,99 @@ export function DynamicFormDialog(props: {
           {props.headers.map((header) => {
             const mapped = props.headerMap[header] ?? header;
             const isRequired = props.requiredFields.includes(mapped);
+            const imageField = isImageField(header);
+            const fieldValue = String(form[header] ?? "");
+            const uploadedPreviewUrl = uploadedPreviewUrls[header] ?? null;
+            const storedPreviewUrl =
+              imageField &&
+              props.editingRecord?.photoKey &&
+              props.editingRecord.photoKey === fieldValue.trim()
+                ? (props.editingRecord.photoUrl ?? null)
+                : null;
+            const previewUrl =
+              uploadedPreviewUrl ??
+              storedPreviewUrl ??
+              (isRenderableImageValue(fieldValue.trim())
+                ? fieldValue.trim()
+                : null);
             return (
               <div key={header} className="space-y-1.5">
                 <Label>
                   {header}
                   {isRequired ? " *" : ""}
                 </Label>
-                <Input
-                  value={form[header] ?? ""}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, [header]: e.target.value }))
-                  }
-                />
+                {imageField ? (
+                  <div className="space-y-2">
+                    {previewUrl ? (
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-12 w-12 rounded-md" size="lg">
+                          <AvatarImage
+                            src={previewUrl}
+                            alt={header}
+                            className="rounded-md"
+                          />
+                          <AvatarFallback className="rounded-md">
+                            IMG
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 text-xs text-muted-foreground break-all">
+                          {fieldValue}
+                        </div>
+                      </div>
+                    ) : null}
+                    <Input
+                      value={fieldValue}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          [header]: e.target.value,
+                        }))
+                      }
+                      placeholder="Image URL or storage key"
+                    />
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      disabled={saving || uploadingField === header}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setUploadingField(header);
+                        try {
+                          const res = await dynamicApi.uploadRecordImage(file, {
+                            orgId: props.orgId,
+                          });
+                          setForm((prev) => ({
+                            ...prev,
+                            [header]: res.data.key,
+                          }));
+                          setUploadedPreviewUrls((prev) => ({
+                            ...prev,
+                            [header]: res.data.url,
+                          }));
+                          toast.success("Image uploaded");
+                        } catch (error) {
+                          toast.error("Failed to upload image", {
+                            description:
+                              error instanceof Error
+                                ? error.message
+                                : "Unknown error",
+                          });
+                        } finally {
+                          setUploadingField(null);
+                          e.currentTarget.value = "";
+                        }
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <Input
+                    value={fieldValue}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, [header]: e.target.value }))
+                    }
+                  />
+                )}
               </div>
             );
           })}
@@ -132,6 +265,7 @@ export function DynamicRecordsManager({ orgId }: Props) {
   const [datasets, setDatasets] = useState<dynamicApi.DatasetDto[]>([]);
   const [datasetId, setDatasetId] = useState<string>("");
   const [records, setRecords] = useState<dynamicApi.DynamicRecordDto[]>([]);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [headerMap, setHeaderMap] = useState<Record<string, string>>({});
   const [requiredFields, setRequiredFields] = useState<string[]>([]);
@@ -145,9 +279,6 @@ export function DynamicRecordsManager({ orgId }: Props) {
   const [editingRecord, setEditingRecord] =
     useState<dynamicApi.DynamicRecordDto | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-
-  const [mappingDraft, setMappingDraft] = useState<Record<string, string>>({});
-  const [requiredDraft, setRequiredDraft] = useState<string[]>([]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -186,8 +317,6 @@ export function DynamicRecordsManager({ orgId }: Props) {
         setHeaders(res.data.headers);
         setHeaderMap(res.data.headerMap);
         setRequiredFields(res.data.requiredFields);
-        setMappingDraft(res.data.headerMap);
-        setRequiredDraft(res.data.requiredFields);
         setTotal(res.data.total);
       } catch (error) {
         toast.error("Failed to load records", {
@@ -206,31 +335,92 @@ export function DynamicRecordsManager({ orgId }: Props) {
 
   useEffect(() => {
     if (!datasetId) return;
+    setSelectedRecordIds([]);
     void loadRecords(datasetId, page, search, sortBy, sortOrder);
   }, [datasetId, page, search, sortBy, sortOrder, loadRecords]);
 
-  async function saveMappings() {
-    if (!datasetId) return;
+  const currentDataset = datasets.find((d) => d.id === datasetId) ?? null;
+  const effectiveOrgId = currentDataset?.orgId ?? orgId;
+  const allSelected =
+    records.length > 0 && selectedRecordIds.length === records.length;
+
+  function toggleRecordSelection(recordId: string, checked: boolean) {
+    setSelectedRecordIds((prev) =>
+      checked
+        ? [...new Set([...prev, recordId])]
+        : prev.filter((id) => id !== recordId),
+    );
+  }
+
+  async function deleteRecords(recordIds: string[]) {
+    if (recordIds.length === 0) return;
+
     try {
-      await dynamicApi.upsertFieldMappings(datasetId, {
-        orgId: effectiveOrgId,
-        mappings: headers.map((header) => ({
-          sourceField: header,
-          targetField: mappingDraft[header] || header,
-        })),
-        requiredFields: requiredDraft,
-      });
-      toast.success("Field mapping updated");
-      await loadRecords(datasetId, page, search);
+      await Promise.all(
+        recordIds.map((recordId) =>
+          dynamicApi.deleteRecord(recordId, {
+            orgId: effectiveOrgId,
+          }),
+        ),
+      );
+      setSelectedRecordIds((prev) =>
+        prev.filter((id) => !recordIds.includes(id)),
+      );
+      toast.success(
+        recordIds.length === 1
+          ? "Record deleted"
+          : `${recordIds.length} records deleted`,
+      );
+      if (datasetId) {
+        await loadRecords(datasetId, page, search, sortBy, sortOrder);
+      }
     } catch (error) {
-      toast.error("Failed to update mapping", {
+      toast.error("Delete failed", {
         description: error instanceof Error ? error.message : "Unknown error",
       });
     }
   }
 
-  const currentDataset = datasets.find((d) => d.id === datasetId) ?? null;
-  const effectiveOrgId = currentDataset?.orgId ?? orgId;
+  function renderRecordValue(
+    record: dynamicApi.DynamicRecordDto,
+    header: string,
+  ) {
+    if (isImageField(header)) {
+      const fieldValue = String(record.data[header] ?? "").trim();
+      const previewUrl =
+        record.photoKey && record.photoKey === fieldValue
+          ? record.photoUrl
+          : isRenderableImageValue(fieldValue)
+            ? fieldValue
+            : null;
+
+      return (
+        <div className="flex min-w-0 items-center gap-2">
+          {previewUrl ? (
+            <Avatar className="h-8 w-8 rounded-md shrink-0" size="default">
+              <AvatarImage
+                src={previewUrl}
+                alt={header}
+                className="rounded-md"
+              />
+              <AvatarFallback className="rounded-md text-[10px]">
+                IMG
+              </AvatarFallback>
+            </Avatar>
+          ) : null}
+          <span className="block max-w-full overflow-x-auto whitespace-nowrap text-sm">
+            {String(record.data[header] ?? "")}
+          </span>
+        </div>
+      );
+    }
+
+    return (
+      <span className="block max-w-full overflow-x-auto whitespace-nowrap text-sm">
+        {String(record.data[header] ?? "")}
+      </span>
+    );
+  }
 
   return (
     <div className="space-y-4 px-4 lg:px-6">
@@ -259,6 +449,14 @@ export function DynamicRecordsManager({ orgId }: Props) {
 
         <div className="flex-1" />
         <Button
+          variant="destructive"
+          size="sm"
+          disabled={selectedRecordIds.length === 0}
+          onClick={() => void deleteRecords(selectedRecordIds)}
+        >
+          Delete Selected ({selectedRecordIds.length})
+        </Button>
+        <Button
           onClick={() => {
             setEditingRecord(null);
             setFormOpen(true);
@@ -269,61 +467,6 @@ export function DynamicRecordsManager({ orgId }: Props) {
           Add Record
         </Button>
       </div>
-
-      {currentDataset && (
-        <div className="rounded-md border p-3 space-y-3">
-          <div className="text-sm font-medium">Field Mapping</div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {headers.map((header) => {
-              const mapped = mappingDraft[header] ?? headerMap[header] ?? "";
-              const normalizedMapped = mapped
-                .trim()
-                .toLowerCase()
-                .replace(/\s+/g, "_");
-              const required = requiredDraft.includes(normalizedMapped);
-              return (
-                <div key={header} className="space-y-1">
-                  <Label>{header}</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={mapped}
-                      onChange={(e) =>
-                        setMappingDraft((prev) => ({
-                          ...prev,
-                          [header]: e.target.value,
-                        }))
-                      }
-                    />
-                    <label className="text-xs flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={required}
-                        onChange={(e) => {
-                          setRequiredDraft((prev) =>
-                            e.target.checked
-                              ? [...new Set([...prev, normalizedMapped])]
-                              : prev.filter((v) => v !== normalizedMapped),
-                          );
-                        }}
-                      />
-                      Required
-                    </label>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void saveMappings()}
-            >
-              Save Mapping
-            </Button>
-          </div>
-        </div>
-      )}
 
       <div className="flex items-center gap-2">
         <Input
@@ -337,7 +480,6 @@ export function DynamicRecordsManager({ orgId }: Props) {
             <SelectValue placeholder="Sort field" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="rowIndex">Row order</SelectItem>
             {headers.map((header) => (
               <SelectItem key={header} value={header}>
                 {header}
@@ -370,10 +512,21 @@ export function DynamicRecordsManager({ orgId }: Props) {
         </Button>
       </div>
 
-      <div className="rounded-md border overflow-auto">
+      <div className="hidden rounded-md border md:block">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[48px]">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={(checked) => {
+                    setSelectedRecordIds(
+                      checked ? records.map((record) => record.id) : [],
+                    );
+                  }}
+                  aria-label="Select all records"
+                />
+              </TableHead>
               {headers.map((header) => (
                 <TableHead key={header}>{header}</TableHead>
               ))}
@@ -383,20 +536,32 @@ export function DynamicRecordsManager({ orgId }: Props) {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={headers.length + 1}>Loading...</TableCell>
+                <TableCell colSpan={headers.length + 2}>Loading...</TableCell>
               </TableRow>
             ) : records.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={headers.length + 1}>
+                <TableCell colSpan={headers.length + 2}>
                   No records found
                 </TableCell>
               </TableRow>
             ) : (
               records.map((record) => (
                 <TableRow key={record.id}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedRecordIds.includes(record.id)}
+                      onCheckedChange={(checked) =>
+                        toggleRecordSelection(record.id, Boolean(checked))
+                      }
+                      aria-label={`Select row ${record.rowIndex + 1}`}
+                    />
+                  </TableCell>
                   {headers.map((header) => (
-                    <TableCell key={`${record.id}-${header}`}>
-                      {String(record.data[header] ?? "")}
+                    <TableCell
+                      key={`${record.id}-${header}`}
+                      className="max-w-[260px]"
+                    >
+                      {renderRecordValue(record, header)}
                     </TableCell>
                   ))}
                   <TableCell>
@@ -414,25 +579,7 @@ export function DynamicRecordsManager({ orgId }: Props) {
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={() => {
-                          void dynamicApi
-                            .deleteRecord(record.id, {
-                              orgId: effectiveOrgId,
-                            })
-                            .then(() => {
-                              toast.success("Record deleted");
-                              if (datasetId)
-                                void loadRecords(datasetId, page, search);
-                            })
-                            .catch((error) => {
-                              toast.error("Delete failed", {
-                                description:
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Unknown error",
-                              });
-                            });
-                        }}
+                        onClick={() => void deleteRecords([record.id])}
                       >
                         Delete
                       </Button>
@@ -443,6 +590,66 @@ export function DynamicRecordsManager({ orgId }: Props) {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      <div className="space-y-3 md:hidden">
+        {loading ? (
+          <div className="rounded-md border p-4 text-sm text-muted-foreground">
+            Loading...
+          </div>
+        ) : records.length === 0 ? (
+          <div className="rounded-md border p-4 text-sm text-muted-foreground">
+            No records found
+          </div>
+        ) : (
+          records.map((record) => (
+            <div key={record.id} className="rounded-md border p-3 space-y-3">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  checked={selectedRecordIds.includes(record.id)}
+                  onCheckedChange={(checked) =>
+                    toggleRecordSelection(record.id, Boolean(checked))
+                  }
+                  aria-label={`Select row ${record.rowIndex + 1}`}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">
+                    Row {record.rowIndex + 1}
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {headers.map((header) => (
+                      <div key={`${record.id}-${header}`} className="space-y-1">
+                        <div className="text-xs font-medium text-muted-foreground">
+                          {header}
+                        </div>
+                        {renderRecordValue(record, header)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingRecord(record);
+                    setFormOpen(true);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => void deleteRecords([record.id])}
+                >
+                  Delete
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="flex items-center justify-end gap-2">
@@ -474,6 +681,7 @@ export function DynamicRecordsManager({ orgId }: Props) {
         requiredFields={requiredFields}
         headerMap={headerMap}
         editingRecord={editingRecord}
+        orgId={effectiveOrgId}
         onSubmit={async (data) => {
           if (!datasetId) return;
           if (editingRecord) {
