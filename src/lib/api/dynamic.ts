@@ -43,6 +43,7 @@ export type DynamicCanvasElement = {
   label?: string;
   width?: number;
   height?: number;
+  borderRadius?: number;
 };
 
 export type DynamicCanvas = {

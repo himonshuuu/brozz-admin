@@ -3,7 +3,16 @@
 import { saveAs } from "file-saver";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +34,7 @@ import {
 import { useMemoizedCallback } from "@/hooks/use-memoized-callback";
 import { API_BASE, apiFetch } from "@/lib/api/client";
 import * as dynamicApi from "@/lib/api/dynamic";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/useAuthStore";
 
 type ElementType = dynamicApi.DynamicCanvasElement;
@@ -67,7 +77,53 @@ function isImageField(header: string) {
   return IMAGE_FIELD_KEYS.has(normalizeFieldKey(header));
 }
 
+function formatFieldLabel(header: string) {
+  return header.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() || header;
+}
+
+function isRenderableImageValue(value: string) {
+  return (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("data:image/")
+  );
+}
+
+function isImageFilePath(value: string) {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(value);
+}
+
+function getCompactFileName(value: string) {
+  const cleanValue = value.split("?")[0]?.split("#")[0] ?? value;
+  const parts = cleanValue.split("/").filter(Boolean);
+  return parts.at(-1) || value;
+}
+
 const NEW_TEMPLATE_VALUE = "__new__";
+
+const DESIGN_STEPS = [
+  {
+    key: "data",
+    title: "Choose data",
+    description: "Pick the organization, dataset, and sample row to preview.",
+  },
+  {
+    key: "template",
+    title: "Build template",
+    description: "Upload the card background, then add text or image fields.",
+  },
+  {
+    key: "preview",
+    title: "Adjust layout",
+    description:
+      "Drag items on the card and fine-tune them from the right panel.",
+  },
+  {
+    key: "print",
+    title: "Print selected",
+    description: "Tick the rows you want to export, then generate the ZIP.",
+  },
+] as const;
 
 export function IdCardEditor() {
   const [datasets, setDatasets] = useState<dynamicApi.DatasetDto[]>([]);
@@ -98,6 +154,7 @@ export function IdCardEditor() {
   const dragOffset = useRef({ x: 0, y: 0 });
   const resizeOrigin = useRef({ left: 0, top: 0 });
   const [canvasViewportWidth, setCanvasViewportWidth] = useState(DEFAULT_WIDTH);
+  const activePointerId = useRef<number | null>(null);
 
   const activeElement = useMemo(
     () => elements.find((e) => e.id === activeElementId) ?? null,
@@ -225,6 +282,12 @@ export function IdCardEditor() {
           }),
         ]);
         setRecords(recordsRes.data.items);
+        const nextPreviewRecordId =
+          recordsRes.data.items.find((record) => record.id === previewRecordId)
+            ?.id ??
+          recordsRes.data.items[0]?.id ??
+          "";
+        setPreviewRecordId(nextPreviewRecordId);
         setHeaders(variablesRes.data.headers);
         setTemplates(templatesRes.data);
         const nextTemplate =
@@ -297,6 +360,30 @@ export function IdCardEditor() {
     return null;
   }
 
+  function resolveRecordImageSrc(
+    record: dynamicApi.DynamicRecordDto,
+    header: string,
+  ) {
+    const fieldValue = String(record.data[header] ?? "").trim();
+    if (!fieldValue) return null;
+
+    if (record.photoKey && record.photoKey === fieldValue) {
+      return record.photoUrl;
+    }
+
+    if (isRenderableImageValue(fieldValue)) {
+      return fieldValue;
+    }
+
+    if (isImageFilePath(fieldValue)) {
+      return fieldValue.startsWith("/")
+        ? `${API_BASE}${fieldValue}`
+        : `${API_BASE}/${fieldValue}`;
+    }
+
+    return null;
+  }
+
   function applyTemplate(template: dynamicApi.DynamicTemplateDto | null) {
     if (!template) {
       setTemplateId("");
@@ -348,6 +435,7 @@ export function IdCardEditor() {
       y: 50,
       width: 24,
       height: 40,
+      borderRadius: 0,
     };
     setElements((prev) => [...prev, item]);
     setActiveElementId(item.id);
@@ -393,6 +481,61 @@ export function IdCardEditor() {
     };
   }
 
+  const updateInteractionPosition = useMemoizedCallback(
+    (clientX: number, clientY: number) => {
+      if (!canvasRef.current) return;
+      const rect = canvasRef.current.getBoundingClientRect();
+
+      if (resizingId) {
+        const rawWidth = clientX - rect.left - resizeOrigin.current.left;
+        const rawHeight = clientY - rect.top - resizeOrigin.current.top;
+        const widthPx = Math.max(
+          24,
+          Math.min(rect.width - resizeOrigin.current.left, rawWidth),
+        );
+        const heightPx = Math.max(
+          24,
+          Math.min(rect.height - resizeOrigin.current.top, rawHeight),
+        );
+
+        setElements((prev) =>
+          prev.map((el) => {
+            if (el.id !== resizingId || el.type !== "image") return el;
+            const width = Math.max(1, (widthPx / rect.width) * 100);
+            const height = Math.max(1, (heightPx / rect.height) * 100);
+            return {
+              ...el,
+              width,
+              height,
+              x: ((resizeOrigin.current.left + widthPx / 2) / rect.width) * 100,
+              y:
+                ((resizeOrigin.current.top + heightPx / 2) / rect.height) * 100,
+            };
+          }),
+        );
+        return;
+      }
+
+      if (!draggingId) return;
+      const centerX = clientX - rect.left - dragOffset.current.x;
+      const centerY = clientY - rect.top - dragOffset.current.y;
+      const x = Math.max(0, Math.min(100, (centerX / rect.width) * 100));
+      const y = Math.max(0, Math.min(100, (centerY / rect.height) * 100));
+      setElements((prev) =>
+        prev.map((el) =>
+          el.id === draggingId ? { ...el, ...clampElement(el, x, y) } : el,
+        ),
+      );
+    },
+    [draggingId, resizingId],
+  );
+
+  const stopInteraction = useMemoizedCallback(() => {
+    activePointerId.current = null;
+    setDraggingId(null);
+    setResizingId(null);
+  }, []);
+
   function onFieldPointerDown(e: React.PointerEvent, id: string) {
     if (!canvasRef.current) return;
     e.preventDefault();
@@ -406,9 +549,9 @@ export function IdCardEditor() {
       x: e.clientX - rect.left - centerX,
       y: e.clientY - rect.top - centerY,
     };
+    activePointerId.current = e.pointerId;
     setDraggingId(id);
     setActiveElementId(id);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
   function onResizeHandlePointerDown(e: React.PointerEvent, id: string) {
@@ -427,65 +570,66 @@ export function IdCardEditor() {
       left: centerX - widthPx / 2,
       top: centerY - heightPx / 2,
     };
+    activePointerId.current = e.pointerId;
     setResizingId(id);
     setActiveElementId(id);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
   function onCanvasPointerMove(e: React.PointerEvent) {
-    if (!canvasRef.current) return;
-    e.preventDefault();
-    const rect = canvasRef.current.getBoundingClientRect();
-
-    if (resizingId) {
-      const rawWidth = e.clientX - rect.left - resizeOrigin.current.left;
-      const rawHeight = e.clientY - rect.top - resizeOrigin.current.top;
-      const widthPx = Math.max(
-        24,
-        Math.min(rect.width - resizeOrigin.current.left, rawWidth),
-      );
-      const heightPx = Math.max(
-        24,
-        Math.min(rect.height - resizeOrigin.current.top, rawHeight),
-      );
-
-      setElements((prev) =>
-        prev.map((el) => {
-          if (el.id !== resizingId || el.type !== "image") return el;
-          const width = Math.max(1, (widthPx / rect.width) * 100);
-          const height = Math.max(1, (heightPx / rect.height) * 100);
-          return {
-            ...el,
-            width,
-            height,
-            x: ((resizeOrigin.current.left + widthPx / 2) / rect.width) * 100,
-            y: ((resizeOrigin.current.top + heightPx / 2) / rect.height) * 100,
-          };
-        }),
-      );
+    if (
+      activePointerId.current !== null &&
+      e.pointerId !== activePointerId.current
+    ) {
       return;
     }
-
-    if (!draggingId) return;
-    const centerX = e.clientX - rect.left - dragOffset.current.x;
-    const centerY = e.clientY - rect.top - dragOffset.current.y;
-    const x = Math.max(0, Math.min(100, (centerX / rect.width) * 100));
-    const y = Math.max(0, Math.min(100, (centerY / rect.height) * 100));
-    setElements((prev) =>
-      prev.map((el) =>
-        el.id === draggingId ? { ...el, ...clampElement(el, x, y) } : el,
-      ),
-    );
+    e.preventDefault();
+    updateInteractionPosition(e.clientX, e.clientY);
   }
 
   function onCanvasPointerUp(e: React.PointerEvent) {
+    if (
+      activePointerId.current !== null &&
+      e.pointerId !== activePointerId.current
+    ) {
+      return;
+    }
     if (!draggingId && !resizingId) return;
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {}
-    setDraggingId(null);
-    setResizingId(null);
+    stopInteraction();
   }
+
+  useEffect(() => {
+    if (!draggingId && !resizingId) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (
+        activePointerId.current !== null &&
+        event.pointerId !== activePointerId.current
+      ) {
+        return;
+      }
+      updateInteractionPosition(event.clientX, event.clientY);
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (
+        activePointerId.current !== null &&
+        event.pointerId !== activePointerId.current
+      ) {
+        return;
+      }
+      stopInteraction();
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [draggingId, resizingId, stopInteraction, updateInteractionPosition]);
 
   async function saveTemplate() {
     if (!datasetId) return;
@@ -566,438 +710,709 @@ export function IdCardEditor() {
     1,
     Math.max(0.1, canvasViewportWidth / canvasSize.width),
   );
+  const hasDataset = Boolean(datasetId);
+  const hasBackground = Boolean(backgroundImage);
+  const hasElements = elements.length > 0;
+  const hasSelectedRecords = selectedRecordIds.length > 0;
+  const completedStepCount = [
+    hasDataset,
+    hasBackground,
+    hasElements,
+    hasSelectedRecords,
+  ].filter(Boolean).length;
+  const previewLabel = previewRecord
+    ? `Row ${previewRecord.rowIndex + 1}`
+    : "No preview selected";
 
   return (
     <div className="flex flex-col gap-4 h-full p-4 overflow-auto">
       {fontFaceCss ? <style>{fontFaceCss}</style> : null}
-      <div className="flex flex-wrap items-center gap-3">
-        {user?.role === "admin" && (
-          <Select
-            value={orgId || "all"}
-            onValueChange={(val) => setOrgId(val === "all" ? "" : val)}
-            disabled={orgsLoading}
-          >
-            <SelectTrigger className="w-[220px]">
-              <SelectValue placeholder="Select Organization" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Organizations</SelectItem>
-              {orgs.map((org) => (
-                <SelectItem key={org.id} value={org.id}>
-                  {org.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+      <Card className="border border-border/70 bg-muted/20 py-0">
+        <CardHeader className="gap-3 border-b py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>How this page works</CardTitle>
+              <CardDescription>
+                Complete the setup from left to right. You are designing one
+                card layout, previewing it with one row, then exporting the
+                checked rows.
+              </CardDescription>
+            </div>
+            <Badge variant="outline">
+              {completedStepCount}/{DESIGN_STEPS.length} steps ready
+            </Badge>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
+            {DESIGN_STEPS.map((step, index) => {
+              const complete =
+                (step.key === "data" && hasDataset) ||
+                (step.key === "template" && hasBackground) ||
+                (step.key === "preview" && hasElements) ||
+                (step.key === "print" && hasSelectedRecords);
 
-        <Select value={datasetId || ""} onValueChange={setDatasetId}>
-          <SelectTrigger className="w-[280px]">
-            <SelectValue placeholder="Select dataset" />
-          </SelectTrigger>
-          <SelectContent>
-            {datasets.map((dataset) => (
-              <SelectItem key={dataset.id} value={dataset.id}>
-                {dataset.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={templateId || NEW_TEMPLATE_VALUE}
-          onValueChange={(id) => {
-            if (id === NEW_TEMPLATE_VALUE) {
-              applyTemplate(null);
-              return;
-            }
-            const selected = templates.find((t) => t.id === id) ?? null;
-            applyTemplate(selected);
-          }}
-        >
-          <SelectTrigger className="w-[280px]">
-            <SelectValue placeholder="Select saved template" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NEW_TEMPLATE_VALUE}>New Template</SelectItem>
-            {templates.map((template) => (
-              <SelectItem key={template.id} value={template.id}>
-                {template.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Input
-          className="max-w-[240px]"
-          placeholder="Template name"
-          value={templateName}
-          onChange={(e) => setTemplateName(e.target.value)}
-        />
-
-        <Input
-          type="file"
-          accept="image/*"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onTemplateUpload(file);
-            e.currentTarget.value = "";
-          }}
-          className="max-w-[260px]"
-        />
-
-        <Select
-          value={previewRecord?.id ?? "__none__"}
-          onValueChange={(value) =>
-            setPreviewRecordId(value === "__none__" ? "" : value)
-          }
-          disabled={records.length === 0}
-        >
-          <SelectTrigger className="w-[240px]">
-            <SelectValue placeholder="Preview record" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">No Preview Data</SelectItem>
-            {records.map((record) => (
-              <SelectItem key={record.id} value={record.id}>
-                Row {record.rowIndex + 1}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="flex-1" />
-        <Button variant="outline" onClick={() => void saveTemplate()}>
-          Save Template
-        </Button>
-        <Button
-          onClick={() => void handlePrint()}
-          disabled={printing || loading}
-        >
-          {printing ? "Generating..." : "Print Selected"}
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)_280px] 2xl:grid-cols-[260px_minmax(0,1fr)_300px] gap-4 min-h-[620px]">
-        <div className="border rounded-md p-3 space-y-3">
-          <div className="text-sm font-medium">Available Fields</div>
-          <div className="space-y-1 max-h-[500px] overflow-auto">
-            {headers.map((header) => (
-              <div key={header} className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => addVariableElement(header)}
+              return (
+                <div
+                  key={step.key}
+                  className={cn(
+                    "rounded-lg border px-3 py-3 text-sm",
+                    complete
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-dashed border-border bg-background/70",
+                  )}
                 >
-                  {header}
-                </Button>
-                {isImageField(header) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addPhotoElement(header)}
-                  >
-                    Image
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="border rounded-md p-3 overflow-auto">
-          <div ref={canvasViewportRef} className="mx-auto w-fit max-w-fit">
-            <div
-              className="mx-auto"
-              style={{
-                width: canvasSize.width * canvasScale,
-                height: canvasSize.height * canvasScale,
-              }}
-            >
-              <div
-                ref={canvasRef}
-                className="relative origin-top-left bg-white border overflow-hidden"
-                style={{
-                  width: canvasSize.width,
-                  height: canvasSize.height,
-                  transform: `scale(${canvasScale})`,
-                }}
-                onPointerMove={onCanvasPointerMove}
-                onPointerUp={onCanvasPointerUp}
-              >
-                {backgroundImage ? (
-                  <img
-                    src={backgroundImage}
-                    alt="template"
-                    className="pointer-events-none absolute inset-0 h-full w-full object-fill"
-                  />
-                ) : (
-                  <div
-                    className="flex items-center justify-center text-muted-foreground text-sm"
-                    style={{ height: canvasSize.height }}
-                  >
-                    Upload template image
+                  <div className="mb-1 flex items-center gap-2">
+                    <Badge variant={complete ? "default" : "outline"}>
+                      {index + 1}
+                    </Badge>
+                    <div className="font-medium">{step.title}</div>
                   </div>
-                )}
-                {elements.map((el) =>
-                  (() => {
-                    const previewText =
-                      resolvePreviewValue(el.value) || el.value;
-                    const previewImageSrc =
-                      el.type === "image"
-                        ? resolvePreviewImageSrc(el.value)
-                        : null;
+                  <p className="text-muted-foreground">{step.description}</p>
+                </div>
+              );
+            })}
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-4 py-4 lg:grid-cols-[1.2fr_1fr_auto]">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="space-y-2">
+              <Label>Organization</Label>
+              {user?.role === "admin" ? (
+                <Select
+                  value={orgId || "all"}
+                  onValueChange={(val) => setOrgId(val === "all" ? "" : val)}
+                  disabled={orgsLoading}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select organization" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Organizations</SelectItem>
+                    {orgs.map((org) => (
+                      <SelectItem key={org.id} value={org.id}>
+                        {org.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={user?.name ?? "Current Organization"} disabled />
+              )}
+              <p className="text-xs text-muted-foreground">
+                Filter datasets by organization first.
+              </p>
+            </div>
 
-                    return (
-                      <div
-                        key={el.id}
-                        onPointerDown={(e) => onFieldPointerDown(e, el.id)}
-                        onClick={() => setActiveElementId(el.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setActiveElementId(el.id);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        className={`absolute select-none ${el.type === "image" ? "cursor-grab" : "cursor-move"} ${activeElementId === el.id ? "ring-2 ring-primary" : "ring-1 ring-border"}`}
-                        style={{
-                          left: `${el.x}%`,
-                          top: `${el.y}%`,
-                          transform: "translate(-50%, -50%)",
-                          padding: el.type === "text" ? "2px 6px" : undefined,
-                          width:
-                            el.type === "image"
-                              ? `${el.width ?? 24}%`
-                              : undefined,
-                          height:
-                            el.type === "image"
-                              ? `${el.height ?? 40}%`
-                              : undefined,
-                          background:
-                            el.type === "image"
-                              ? "rgba(0,0,0,0.08)"
-                              : "rgba(255,255,255,0.8)",
-                          fontSize:
-                            el.type === "text"
-                              ? `${Math.max(8, Math.round((canvasSize.width * (el.fontSize ?? 2.4)) / 100))}px`
-                              : undefined,
-                          fontFamily:
-                            el.type === "text"
-                              ? (el.fontFamily ?? "inherit")
-                              : undefined,
-                          fontWeight: el.fontWeight,
-                          color: el.color,
-                          lineHeight: el.type === "text" ? 1 : undefined,
-                          whiteSpace: el.type === "text" ? "pre" : undefined,
-                        }}
-                      >
-                        {el.type === "text" ? (
-                          previewText
-                        ) : previewImageSrc ? (
-                          <img
-                            src={previewImageSrc}
-                            alt={el.value}
-                            className="h-full w-full object-cover"
-                            draggable={false}
-                          />
-                        ) : (
-                          `IMG ${previewText}`
-                        )}
-                        {el.type === "image" ? (
-                          <button
-                            type="button"
-                            aria-label="Resize image"
-                            onPointerDown={(e) =>
-                              onResizeHandlePointerDown(e, el.id)
-                            }
-                            className="absolute -bottom-2 -right-2 h-4 w-4 cursor-se-resize rounded-full border border-primary bg-background shadow-sm"
-                          />
-                        ) : null}
-                      </div>
-                    );
-                  })(),
-                )}
-              </div>
+            <div className="space-y-2">
+              <Label>Dataset</Label>
+              <Select value={datasetId || ""} onValueChange={setDatasetId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select dataset" />
+                </SelectTrigger>
+                <SelectContent>
+                  {datasets.map((dataset) => (
+                    <SelectItem key={dataset.id} value={dataset.id}>
+                      {dataset.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Choose the records that will supply the card fields.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Preview row</Label>
+              <Select
+                value={previewRecord?.id ?? "__none__"}
+                onValueChange={(value) =>
+                  setPreviewRecordId(value === "__none__" ? "" : value)
+                }
+                disabled={records.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Preview row" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No preview data</SelectItem>
+                  {records.map((record) => (
+                    <SelectItem key={record.id} value={record.id}>
+                      Row {record.rowIndex + 1}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                This row is only for preview. Printing uses the checked rows
+                below.
+              </p>
             </div>
           </div>
-        </div>
 
-        <div className="border rounded-md p-3 space-y-3">
-          <div className="text-sm font-medium">Element Properties</div>
-          {activeElement ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2">
-              <Label>Value (supports {"{{Field}}"})</Label>
-              <Input
-                value={activeElement.value}
-                onChange={(e) => updateActive({ value: e.target.value })}
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label>X (%)</Label>
-                  <Input
-                    type="number"
-                    value={activeElement.x}
-                    onChange={(e) =>
-                      updateActive({ x: Number(e.target.value) || 0 })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label>Y (%)</Label>
-                  <Input
-                    type="number"
-                    value={activeElement.y}
-                    onChange={(e) =>
-                      updateActive({ y: Number(e.target.value) || 0 })
-                    }
-                  />
-                </div>
-              </div>
-              {activeElement.type === "text" ? (
-                <>
-                  <Label>Font Family</Label>
-                  <Select
-                    value={activeElement.fontFamily ?? "__system__"}
-                    onValueChange={(value) =>
-                      updateActive({
-                        fontFamily: value === "__system__" ? undefined : value,
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select font" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__system__">System Default</SelectItem>
-                      {fonts.map((font) => (
-                        <SelectItem key={font.fileName} value={font.name}>
-                          {font.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Label>Font Size (% of width)</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={activeElement.fontSize ?? 2.2}
-                    onChange={(e) =>
-                      updateActive({ fontSize: Number(e.target.value) || 2.2 })
-                    }
-                  />
-                  <Label>Text Color</Label>
-                  <Input
-                    value={activeElement.color ?? "#000000"}
-                    onChange={(e) => updateActive({ color: e.target.value })}
-                  />
-                </>
-              ) : (
-                <>
-                  <Label>Width (%)</Label>
-                  <Input
-                    type="number"
-                    value={activeElement.width ?? 24}
-                    onChange={(e) =>
-                      updateActive({ width: Number(e.target.value) || 24 })
-                    }
-                  />
-                  <Label>Height (%)</Label>
-                  <Input
-                    type="number"
-                    value={activeElement.height ?? 40}
-                    onChange={(e) =>
-                      updateActive({ height: Number(e.target.value) || 40 })
-                    }
-                  />
-                </>
-              )}
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  setElements((prev) =>
-                    prev.filter((e) => e.id !== activeElement.id),
-                  );
-                  setActiveElementId(null);
+              <Label>Saved template</Label>
+              <Select
+                value={templateId || NEW_TEMPLATE_VALUE}
+                onValueChange={(id) => {
+                  if (id === NEW_TEMPLATE_VALUE) {
+                    applyTemplate(null);
+                    return;
+                  }
+                  const selected = templates.find((t) => t.id === id) ?? null;
+                  applyTemplate(selected);
                 }}
               >
-                Remove Element
-              </Button>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select saved template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NEW_TEMPLATE_VALUE}>
+                    New Template
+                  </SelectItem>
+                  {templates.map((template) => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Load an existing design or start a new one.
+              </p>
             </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              Select an element on canvas.
+
+            <div className="space-y-2">
+              <Label>Template name</Label>
+              <Input
+                placeholder="Template name"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Save multiple layouts for the same dataset.
+              </p>
             </div>
-          )}
-        </div>
+
+            <div className="space-y-2">
+              <Label>Card background image</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onTemplateUpload(file);
+                  e.currentTarget.value = "";
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Upload the base card design before placing fields on it.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-end gap-2 justify-self-start lg:justify-self-end">
+            <Button variant="outline" onClick={() => void saveTemplate()}>
+              Save Template
+            </Button>
+            <Button
+              onClick={() => void handlePrint()}
+              disabled={printing || loading}
+            >
+              {printing ? "Generating..." : "Print Selected"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)_320px] min-h-[620px]">
+        <Card className="border border-border/70">
+          <CardHeader className="border-b">
+            <CardTitle>Available Fields</CardTitle>
+            <CardDescription>
+              Add a text field for any column. Use image fields for photos, QR
+              codes, or logos.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!hasDataset ? (
+              <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                Select a dataset first to load available columns.
+              </div>
+            ) : headers.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                No fields were found in this dataset.
+              </div>
+            ) : null}
+            <div className="space-y-2 max-h-[520px] overflow-auto pr-1">
+              {headers.map((header) => {
+                const imageField = isImageField(header);
+
+                return (
+                  <button
+                    type="button"
+                    key={header}
+                    onClick={() =>
+                      imageField
+                        ? addPhotoElement(header)
+                        : addVariableElement(header)
+                    }
+                    className="w-full rounded-lg border bg-background/70 p-2 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+                  >
+                    <div className="flex items-center gap-2 rounded-md border border-dashed border-border/80 px-2 py-1.5">
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium capitalize">
+                        {formatFieldLabel(header)}
+                      </span>
+                      <Badge variant="outline" className="shrink-0 uppercase">
+                        {imageField ? "image" : "text"}
+                      </Badge>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border border-border/70 overflow-hidden">
+          <CardHeader className="border-b">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle>Card Preview</CardTitle>
+                <CardDescription>
+                  Drag text or image blocks on the card. Click an item to edit
+                  it from the right panel.
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">{previewLabel}</Badge>
+                <Badge variant="outline">
+                  {canvasSize.width} x {canvasSize.height}
+                </Badge>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="overflow-auto py-4">
+            {!hasBackground ? (
+              <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed bg-muted/20 p-6 text-center">
+                <div className="max-w-sm space-y-2">
+                  <div className="font-medium">
+                    Upload a card background to start
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Once the base card image is uploaded, add fields from the
+                    left panel and drag them into position here.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div ref={canvasViewportRef} className="mx-auto w-fit max-w-fit">
+                <div
+                  className="mx-auto"
+                  style={{
+                    width: canvasSize.width * canvasScale,
+                    height: canvasSize.height * canvasScale,
+                  }}
+                >
+                  <div
+                    ref={canvasRef}
+                    className="relative origin-top-left overflow-hidden border bg-white"
+                    style={{
+                      width: canvasSize.width,
+                      height: canvasSize.height,
+                      transform: `scale(${canvasScale})`,
+                    }}
+                    onPointerMove={onCanvasPointerMove}
+                    onPointerUp={onCanvasPointerUp}
+                  >
+                    <img
+                      src={backgroundImage}
+                      alt="template"
+                      className="pointer-events-none absolute inset-0 h-full w-full object-fill"
+                    />
+                    {elements.map((el) =>
+                      (() => {
+                        const previewText =
+                          resolvePreviewValue(el.value) || el.value;
+                        const previewImageSrc =
+                          el.type === "image"
+                            ? resolvePreviewImageSrc(el.value)
+                            : null;
+
+                        return (
+                          <div
+                            key={el.id}
+                            onPointerDown={(e) => onFieldPointerDown(e, el.id)}
+                            onClick={() => setActiveElementId(el.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setActiveElementId(el.id);
+                              }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            className={`absolute select-none ${el.type === "image" ? "cursor-grab" : "cursor-move"} ${activeElementId === el.id ? "ring-2 ring-primary" : "ring-1 ring-border"}`}
+                            style={{
+                              left: `${el.x}%`,
+                              top: `${el.y}%`,
+                              transform: "translate(-50%, -50%)",
+                              padding:
+                                el.type === "text" ? "2px 6px" : undefined,
+                              width:
+                                el.type === "image"
+                                  ? `${el.width ?? 24}%`
+                                  : undefined,
+                              height:
+                                el.type === "image"
+                                  ? `${el.height ?? 40}%`
+                                  : undefined,
+                              background:
+                                el.type === "image"
+                                  ? "rgba(0,0,0,0.08)"
+                                  : "rgba(255,255,255,0.8)",
+                              fontSize:
+                                el.type === "text"
+                                  ? `${Math.max(8, Math.round((canvasSize.width * (el.fontSize ?? 2.4)) / 100))}px`
+                                  : undefined,
+                              fontFamily:
+                                el.type === "text"
+                                  ? (el.fontFamily ?? "inherit")
+                                  : undefined,
+                              fontWeight: el.fontWeight,
+                              color: el.color,
+                              lineHeight: el.type === "text" ? 1 : undefined,
+                              whiteSpace:
+                                el.type === "text" ? "pre" : undefined,
+                              overflow:
+                                el.type === "image" ? "hidden" : undefined,
+                              borderRadius:
+                                el.type === "image"
+                                  ? `${Math.max(0, Math.min(50, el.borderRadius ?? 0))}%`
+                                  : undefined,
+                            }}
+                          >
+                            {el.type === "text" ? (
+                              previewText
+                            ) : previewImageSrc ? (
+                              <img
+                                src={previewImageSrc}
+                                alt={el.value}
+                                className="h-full w-full object-cover"
+                                draggable={false}
+                              />
+                            ) : (
+                              `IMG ${previewText}`
+                            )}
+                            {el.type === "image" ? (
+                              <button
+                                type="button"
+                                aria-label="Resize image"
+                                onPointerDown={(e) =>
+                                  onResizeHandlePointerDown(e, el.id)
+                                }
+                                className="absolute -bottom-2 -right-2 h-4 w-4 cursor-se-resize rounded-full border border-primary bg-background shadow-sm"
+                              />
+                            ) : null}
+                          </div>
+                        );
+                      })(),
+                    )}
+                    {!hasElements ? (
+                      <div className="pointer-events-none absolute inset-x-6 bottom-6 rounded-lg border border-dashed bg-background/90 px-4 py-3 text-sm text-muted-foreground shadow-sm">
+                        Add a field from the left panel. Text fields show sample
+                        values from the preview row. Image fields use supported
+                        photo or QR columns.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border border-border/70">
+          <CardHeader className="border-b">
+            <CardTitle>Element Properties</CardTitle>
+            <CardDescription>
+              Select a field on the preview to adjust its content, position, and
+              size.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {activeElement ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  {activeElement.type === "text"
+                    ? "Tip: use {{Field}} to inject dataset values into this text block."
+                    : "Tip: drag the corner handle on the preview to resize the image block."}
+                </div>
+                <div className="space-y-2">
+                  <Label>Value (supports {"{{Field}}"})</Label>
+                  <Input
+                    value={activeElement.value}
+                    onChange={(e) => updateActive({ value: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-2">
+                    <Label>X (%)</Label>
+                    <Input
+                      type="number"
+                      value={activeElement.x}
+                      onChange={(e) =>
+                        updateActive({ x: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Y (%)</Label>
+                    <Input
+                      type="number"
+                      value={activeElement.y}
+                      onChange={(e) =>
+                        updateActive({ y: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </div>
+                </div>
+                {activeElement.type === "text" ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Font Family</Label>
+                      <Select
+                        value={activeElement.fontFamily ?? "__system__"}
+                        onValueChange={(value) =>
+                          updateActive({
+                            fontFamily:
+                              value === "__system__" ? undefined : value,
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select font" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__system__">
+                            System Default
+                          </SelectItem>
+                          {fonts.map((font) => (
+                            <SelectItem key={font.fileName} value={font.name}>
+                              {font.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Font Size (% of width)</Label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={activeElement.fontSize ?? 2.2}
+                        onChange={(e) =>
+                          updateActive({
+                            fontSize: Number(e.target.value) || 2.2,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Text Color</Label>
+                      <Input
+                        value={activeElement.color ?? "#000000"}
+                        onChange={(e) =>
+                          updateActive({ color: e.target.value })
+                        }
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Width (%)</Label>
+                      <Input
+                        type="number"
+                        value={activeElement.width ?? 24}
+                        onChange={(e) =>
+                          updateActive({ width: Number(e.target.value) || 24 })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Height (%)</Label>
+                      <Input
+                        type="number"
+                        value={activeElement.height ?? 40}
+                        onChange={(e) =>
+                          updateActive({
+                            height: Number(e.target.value) || 40,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Corner Radius (%)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="50"
+                        value={activeElement.borderRadius ?? 0}
+                        onChange={(e) =>
+                          updateActive({
+                            borderRadius: Math.max(
+                              0,
+                              Math.min(50, Number(e.target.value) || 0),
+                            ),
+                          })
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    setElements((prev) =>
+                      prev.filter((e) => e.id !== activeElement.id),
+                    );
+                    setActiveElementId(null);
+                  }}
+                >
+                  Remove Element
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                Select a text or image block on the preview. This panel will
+                then show the controls for editing that item.
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="border rounded-md overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[40px]">
-                <Checkbox
-                  checked={selectedAll}
-                  onCheckedChange={(checked) => {
-                    setSelectedRecordIds(
-                      checked ? records.map((r) => r.id) : [],
-                    );
-                  }}
-                />
-              </TableHead>
-              {headers.map((header) => (
-                <TableHead key={header}>{header}</TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
+      <Card className="border border-border/70 overflow-hidden">
+        <CardHeader className="border-b">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Rows to Print</CardTitle>
+              <CardDescription>
+                Check the rows you want to export. Click any row to preview it
+                on the card above.
+              </CardDescription>
+            </div>
+            <Badge variant="outline">{selectedRecordIds.length} selected</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="overflow-auto px-0 py-0">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={headers.length + 1}>
-                  Loading records...
-                </TableCell>
+                <TableHead className="w-[40px]">
+                  <Checkbox
+                    checked={selectedAll}
+                    onCheckedChange={(checked) => {
+                      setSelectedRecordIds(
+                        checked ? records.map((r) => r.id) : [],
+                      );
+                    }}
+                  />
+                </TableHead>
+                {headers.map((header) => (
+                  <TableHead key={header}>{header}</TableHead>
+                ))}
               </TableRow>
-            ) : records.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={headers.length + 1}>No records</TableCell>
-              </TableRow>
-            ) : (
-              records.map((record) => {
-                const checked = selectedRecordIds.includes(record.id);
-                return (
-                  <TableRow key={record.id}>
-                    <TableCell>
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(value) => {
-                          if (value) {
-                            setSelectedRecordIds((prev) => [
-                              ...prev,
-                              record.id,
-                            ]);
-                          } else {
-                            setSelectedRecordIds((prev) =>
-                              prev.filter((id) => id !== record.id),
-                            );
-                          }
-                        }}
-                      />
-                    </TableCell>
-                    {headers.map((header) => (
-                      <TableCell key={`${record.id}-${header}`}>
-                        {String(record.data[header] ?? "")}
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={headers.length + 1}>
+                    Loading records...
+                  </TableCell>
+                </TableRow>
+              ) : records.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={headers.length + 1}>No records</TableCell>
+                </TableRow>
+              ) : (
+                records.map((record) => {
+                  const checked = selectedRecordIds.includes(record.id);
+                  const isPreview = previewRecord?.id === record.id;
+                  return (
+                    <TableRow
+                      key={record.id}
+                      className={cn(
+                        "cursor-pointer",
+                        isPreview && "bg-primary/5",
+                      )}
+                      onClick={() => setPreviewRecordId(record.id)}
+                    >
+                      <TableCell>
+                        <Checkbox
+                          checked={checked}
+                          onClick={(e) => e.stopPropagation()}
+                          onCheckedChange={(value) => {
+                            if (value) {
+                              setSelectedRecordIds((prev) => [
+                                ...prev,
+                                record.id,
+                              ]);
+                            } else {
+                              setSelectedRecordIds((prev) =>
+                                prev.filter((id) => id !== record.id),
+                              );
+                            }
+                          }}
+                        />
                       </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                      {headers.map((header) => (
+                        <TableCell key={`${record.id}-${header}`}>
+                          {(() => {
+                            const rawValue = String(record.data[header] ?? "");
+                            const imageSrc = isImageField(header)
+                              ? resolveRecordImageSrc(record, header)
+                              : null;
+                            const displayValue =
+                              imageSrc && rawValue
+                                ? getCompactFileName(rawValue)
+                                : rawValue;
+
+                            return (
+                              <div className="flex min-w-0 items-center gap-2">
+                                {imageSrc ? (
+                                  <Avatar className="h-8 w-8 shrink-0 rounded-md">
+                                    <AvatarImage
+                                      src={imageSrc}
+                                      alt={header}
+                                      className="rounded-md object-cover"
+                                    />
+                                    <AvatarFallback className="rounded-md text-[10px]">
+                                      IMG
+                                    </AvatarFallback>
+                                  </Avatar>
+                                ) : null}
+                                <span className="truncate text-sm">
+                                  {displayValue}
+                                </span>
+                                {header === headers[0] && isPreview ? (
+                                  <Badge variant="outline">Preview</Badge>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }
