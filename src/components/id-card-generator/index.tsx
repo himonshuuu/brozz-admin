@@ -186,6 +186,7 @@ export function IdCardEditor() {
   const [orgsLoading, setOrgsLoading] = useState(false);
   const currentDataset =
     datasets.find((dataset) => dataset.id === datasetId) ?? null;
+  const hasSelectedOrg = user?.role === "admin" ? Boolean(orgId) : true;
   const effectiveOrgId =
     user?.role === "admin"
       ? orgId || currentDataset?.orgId || ""
@@ -230,6 +231,20 @@ export function IdCardEditor() {
   }, []);
 
   const loadDatasets = useMemoizedCallback(async () => {
+    if (user?.role === "admin" && !orgId) {
+      setDatasets([]);
+      setDatasetId("");
+      setTemplateId("");
+      setTemplates([]);
+      setElements([]);
+      setBackgroundImage("");
+      setHeaders([]);
+      setRecords([]);
+      setSelectedRecordIds([]);
+      setPreviewRecordId("");
+      return;
+    }
+
     const payload: { page: number; pageSize: number; orgId?: string } = {
       page: 1,
       pageSize: 100,
@@ -711,6 +726,8 @@ export function IdCardEditor() {
     Math.max(0.1, canvasViewportWidth / canvasSize.width),
   );
   const hasDataset = Boolean(datasetId);
+  const hasPreviewData = Boolean(previewRecord);
+  const canStartDesign = hasSelectedOrg && hasDataset && hasPreviewData;
   const hasBackground = Boolean(backgroundImage);
   const hasElements = elements.length > 0;
   const hasSelectedRecords = selectedRecordIds.length > 0;
@@ -778,15 +795,14 @@ export function IdCardEditor() {
               <Label>Organization</Label>
               {user?.role === "admin" ? (
                 <Select
-                  value={orgId || "all"}
-                  onValueChange={(val) => setOrgId(val === "all" ? "" : val)}
+                  value={orgId}
+                  onValueChange={setOrgId}
                   disabled={orgsLoading}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select organization" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Organizations</SelectItem>
                     {orgs.map((org) => (
                       <SelectItem key={org.id} value={org.id}>
                         {org.name}
@@ -804,7 +820,11 @@ export function IdCardEditor() {
 
             <div className="space-y-2">
               <Label>Dataset</Label>
-              <Select value={datasetId || ""} onValueChange={setDatasetId}>
+              <Select
+                value={datasetId || ""}
+                onValueChange={setDatasetId}
+                disabled={!hasSelectedOrg}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select dataset" />
                 </SelectTrigger>
@@ -817,7 +837,9 @@ export function IdCardEditor() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Choose the records that will supply the card fields.
+                {!hasSelectedOrg
+                  ? "Choose an organization first."
+                  : "Choose the records that will supply the card fields."}
               </p>
             </div>
 
@@ -828,7 +850,7 @@ export function IdCardEditor() {
                 onValueChange={(value) =>
                   setPreviewRecordId(value === "__none__" ? "" : value)
                 }
-                disabled={records.length === 0}
+                disabled={!hasSelectedOrg || records.length === 0}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Preview row" />
@@ -843,8 +865,8 @@ export function IdCardEditor() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                This row is only for preview. Printing uses the checked rows
-                below.
+                Choose a preview row first. Without these details, you cannot
+                design the ID card.
               </p>
             </div>
           </div>
@@ -862,6 +884,7 @@ export function IdCardEditor() {
                   const selected = templates.find((t) => t.id === id) ?? null;
                   applyTemplate(selected);
                 }}
+                disabled={!canStartDesign}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select saved template" />
@@ -878,7 +901,8 @@ export function IdCardEditor() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Load an existing design or start a new one.
+                Load an existing design or start a new one after choosing the
+                dataset and preview row.
               </p>
             </div>
 
@@ -888,6 +912,7 @@ export function IdCardEditor() {
                 placeholder="Template name"
                 value={templateName}
                 onChange={(e) => setTemplateName(e.target.value)}
+                disabled={!canStartDesign}
               />
               <p className="text-xs text-muted-foreground">
                 Save multiple layouts for the same dataset.
@@ -899,6 +924,7 @@ export function IdCardEditor() {
               <Input
                 type="file"
                 accept="image/*"
+                disabled={!canStartDesign}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) onTemplateUpload(file);
@@ -906,18 +932,23 @@ export function IdCardEditor() {
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                Upload the base card design before placing fields on it.
+                Choose the details first, then upload the base card design
+                before placing fields on it.
               </p>
             </div>
           </div>
 
           <div className="flex items-end gap-2 justify-self-start lg:justify-self-end">
-            <Button variant="outline" onClick={() => void saveTemplate()}>
+            <Button
+              variant="outline"
+              onClick={() => void saveTemplate()}
+              disabled={!canStartDesign}
+            >
               Save Template
             </Button>
             <Button
               onClick={() => void handlePrint()}
-              disabled={printing || loading}
+              disabled={printing || loading || !canStartDesign}
             >
               {printing ? "Generating..." : "Print Selected"}
             </Button>
@@ -935,42 +966,54 @@ export function IdCardEditor() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {!hasDataset ? (
+            {!hasSelectedOrg ? (
+              <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                Select an organization first to load available fields.
+              </div>
+            ) : !hasDataset ? (
               <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
                 Select a dataset first to load available columns.
+              </div>
+            ) : !hasPreviewData ? (
+              <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                Select a preview row first. Without choosing the details, you
+                cannot design the ID card.
               </div>
             ) : headers.length === 0 ? (
               <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
                 No fields were found in this dataset.
               </div>
             ) : null}
-            <div className="space-y-2 max-h-[520px] overflow-auto pr-1">
-              {headers.map((header) => {
-                const imageField = isImageField(header);
+            {hasSelectedOrg ? (
+              <div className="space-y-2 max-h-[520px] overflow-auto pr-1">
+                {headers.map((header) => {
+                  const imageField = isImageField(header);
 
-                return (
-                  <button
-                    type="button"
-                    key={header}
-                    onClick={() =>
-                      imageField
-                        ? addPhotoElement(header)
-                        : addVariableElement(header)
-                    }
-                    className="w-full rounded-lg border bg-background/70 p-2 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
-                  >
-                    <div className="flex items-center gap-2 rounded-md border border-dashed border-border/80 px-2 py-1.5">
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium capitalize">
-                        {formatFieldLabel(header)}
-                      </span>
-                      <Badge variant="outline" className="shrink-0 uppercase">
-                        {imageField ? "image" : "text"}
-                      </Badge>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                  return (
+                    <button
+                      type="button"
+                      key={header}
+                      onClick={() =>
+                        imageField
+                          ? addPhotoElement(header)
+                          : addVariableElement(header)
+                      }
+                      disabled={!canStartDesign}
+                      className="w-full rounded-lg border bg-background/70 p-2 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+                    >
+                      <div className="flex items-center gap-2 rounded-md border border-dashed border-border/80 px-2 py-1.5">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium capitalize">
+                          {formatFieldLabel(header)}
+                        </span>
+                        <Badge variant="outline" className="shrink-0 uppercase">
+                          {imageField ? "image" : "text"}
+                        </Badge>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -997,11 +1040,14 @@ export function IdCardEditor() {
               <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed bg-muted/20 p-6 text-center">
                 <div className="max-w-sm space-y-2">
                   <div className="font-medium">
-                    Upload a card background to start
+                    {!canStartDesign
+                      ? "Choose details to start designing"
+                      : "Upload a card background to start"}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Once the base card image is uploaded, add fields from the
-                    left panel and drag them into position here.
+                    {!canStartDesign
+                      ? "Select the dataset and preview row first. Without choosing these details, the ID card designer stays locked."
+                      : "Once the base card image is uploaded, add fields from the left panel and drag them into position here."}
                   </p>
                 </div>
               </div>
