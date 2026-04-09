@@ -1,9 +1,9 @@
 "use client";
 
-import { IdCardEditor } from "@/components/id-card-generator";
-import { useAuthStore } from "@/stores/useAuthStore";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { IdCardEditor } from "@/components/id-card-generator";
+import { useAuthStore } from "@/stores/useAuthStore";
 
 export default function IdCardsPage() {
   const user = useAuthStore((s) => s.user);

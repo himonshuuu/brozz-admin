@@ -1,6 +1,7 @@
 "use client";
 
 import { saveAs } from "file-saver";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -126,6 +127,7 @@ const DESIGN_STEPS = [
 ] as const;
 
 export function IdCardEditor() {
+  const searchParams = useSearchParams();
   const [datasets, setDatasets] = useState<dynamicApi.DatasetDto[]>([]);
   const [datasetId, setDatasetId] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -184,6 +186,9 @@ export function IdCardEditor() {
   >([]);
   const [orgId, setOrgId] = useState<string>("");
   const [orgsLoading, setOrgsLoading] = useState(false);
+  const didApplyOrgFromQuery = useRef(false);
+  const orgFromQuery =
+    searchParams.get("org") || searchParams.get("orgId") || "";
   const currentDataset =
     datasets.find((dataset) => dataset.id === datasetId) ?? null;
   const hasSelectedOrg = user?.role === "admin" ? Boolean(orgId) : true;
@@ -206,6 +211,14 @@ export function IdCardEditor() {
         .finally(() => setOrgsLoading(false));
     }
   }, [user?.role]);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    if (!orgFromQuery) return;
+    if (didApplyOrgFromQuery.current) return;
+    didApplyOrgFromQuery.current = true;
+    setOrgId(orgFromQuery);
+  }, [orgFromQuery, user?.role]);
 
   useEffect(() => {
     dynamicApi

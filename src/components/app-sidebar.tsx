@@ -1,7 +1,16 @@
 "use client";
 
-import { NavMain } from "@/components/nav-main";
+import {
+  ContactBookIcon,
+  DatabaseIcon,
+  HomeIcon,
+  PrinterIcon,
+  User02Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import type * as React from "react";
 import { NavImportJobs } from "@/components/nav-import-jobs";
+import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
@@ -13,16 +22,8 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import {
-  HomeIcon,
-  PrinterIcon,
-  ContactBookIcon,
-  DatabaseIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import type * as React from "react";
-import { SidebarTrigger } from "./ui/sidebar";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { SidebarTrigger } from "./ui/sidebar";
 
 const navMain = [
   {
@@ -39,6 +40,12 @@ const navMain = [
     title: "ID Cards",
     url: "/id-cards",
     icon: <HugeiconsIcon icon={ContactBookIcon} strokeWidth={2} />,
+    adminOnly: true,
+  },
+  {
+    title: "Organizations",
+    url: "/orgs",
+    icon: <HugeiconsIcon icon={User02Icon} strokeWidth={2} />,
     adminOnly: true,
   },
 ];
