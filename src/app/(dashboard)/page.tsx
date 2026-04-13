@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { listDatasets } from "@/lib/api/dynamic";
-import { listImportJobs } from "@/lib/api/import";
 import { apiFetch } from "@/lib/api/client";
+import { getDashboardStats } from "@/lib/api/dashboard";
 import {
   Card,
   CardAction,
@@ -56,34 +55,12 @@ export default function Home() {
       try {
         const scopedOrgId =
           user?.role === "admin" ? orgId || undefined : user?.id;
-        const datasetsRes = await listDatasets({
-          orgId: scopedOrgId,
-          page: 1,
-          pageSize: 100,
-        });
-        const totalDatasets = datasetsRes.data.total;
-        const totalRecords = datasetsRes.data.items.reduce(
-          (sum, ds) => sum + (ds.totalRecords ?? 0),
-          0,
-        );
-
-        const importsRes = await listImportJobs(
+        const statsRes = await getDashboardStats(
           scopedOrgId ? { orgId: scopedOrgId } : undefined,
         );
-        const importJobs = importsRes.data;
-
-        const totalImports = importJobs.length;
-        const runningImports = importJobs.filter(
-          (job) => job.status === "pending" || job.status === "processing",
-        ).length;
 
         if (!cancelled) {
-          setStats({
-            totalDatasets,
-            totalRecords,
-            totalImports,
-            runningImports,
-          });
+          setStats(statsRes.data);
         }
       } finally {
         if (!cancelled) {
