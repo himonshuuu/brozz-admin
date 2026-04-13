@@ -437,6 +437,16 @@ export function IdCardEditor() {
     setActiveElementId(null);
   }
 
+  function startNewTemplate() {
+    setTemplateId("");
+    setTemplateName((currentName) => {
+      const trimmedName = currentName.trim();
+      if (!trimmedName) return "Default Template";
+      return trimmedName;
+    });
+    setActiveElementId(null);
+  }
+
   function addVariableElement(header: string) {
     const item: ElementType = {
       id: crypto.randomUUID(),
@@ -891,7 +901,7 @@ export function IdCardEditor() {
                 value={templateId || NEW_TEMPLATE_VALUE}
                 onValueChange={(id) => {
                   if (id === NEW_TEMPLATE_VALUE) {
-                    applyTemplate(null);
+                    startNewTemplate();
                     return;
                   }
                   const selected = templates.find((t) => t.id === id) ?? null;
