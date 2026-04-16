@@ -5,6 +5,8 @@ export type DashboardStatsDto = {
   totalRecords: number;
   totalImports: number;
   runningImports: number;
+  totalOrganizations?: number;
+  activeOrganizations?: number;
 };
 
 export async function getDashboardStats(opts?: { orgId?: string }) {

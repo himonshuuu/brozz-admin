@@ -33,7 +33,8 @@ export async function apiFetch<T>(
   if (!(body instanceof FormData) && !isBinaryBody)
     headers.set("Content-Type", "application/json");
 
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const url = path.startsWith("/api/") ? path : `${API_BASE}${path}`;
+  const res = await fetch(url, { ...init, headers });
   const json = (await res.json().catch(() => null)) as unknown;
 
   if (!res.ok) {

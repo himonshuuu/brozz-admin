@@ -19,6 +19,8 @@ type DashboardStats = {
   totalRecords: number;
   totalImports: number;
   runningImports: number;
+  totalOrganizations?: number;
+  activeOrganizations?: number;
 };
 
 export default function Home() {
@@ -112,6 +114,23 @@ export default function Home() {
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {user?.role === "admin" && stats.totalOrganizations != null && (
+            <Card className="@container/card">
+              <CardHeader>
+                <CardDescription>Organizations</CardDescription>
+                <CardTitle className="text-3xl font-semibold tabular-nums">
+                  {loading ? "—" : stats.totalOrganizations.toLocaleString()}
+                </CardTitle>
+                <CardAction>
+                  <Badge variant="outline">
+                    {loading
+                      ? "..."
+                      : `${stats.activeOrganizations ?? 0} active`}
+                  </Badge>
+                </CardAction>
+              </CardHeader>
+            </Card>
+          )}
           <Card className="@container/card">
             <CardHeader>
               <CardDescription>Datasets</CardDescription>

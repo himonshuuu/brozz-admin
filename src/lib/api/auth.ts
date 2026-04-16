@@ -67,6 +67,12 @@ export async function getCurrentUser() {
   return apiFetch<{ success: true; data: CurrentUser }>("/auth/me");
 }
 
+export async function deleteMe() {
+  return apiFetch<{ success: true; message?: string }>("/auth/me", {
+    method: "DELETE",
+  });
+}
+
 export async function requestPasswordReset(email: string) {
   return apiFetch<{ success: true; message: string }>("/auth/forgot-password", {
     method: "POST",
