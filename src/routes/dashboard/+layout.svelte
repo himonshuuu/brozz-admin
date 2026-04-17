@@ -34,7 +34,7 @@
 
 {#if authStore.isAuthenticated && authStore.user}
 	<Sidebar.Provider
-		style="--sidebar-width: calc(var(--spacing) * 38); --header-height: calc(var(--spacing) * 12);"
+		style="--sidebar-width: calc(var(--spacing) * 48); --header-height: calc(var(--spacing) * 12);"
 	>
 		<AppSidebar variant="inset" />
 		<Sidebar.Inset>
