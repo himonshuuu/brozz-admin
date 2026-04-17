@@ -65,7 +65,7 @@ export function LoginForm({
       <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Welcome back</CardTitle>
-          <CardDescription>Login with your PrintLoom account</CardDescription>
+          <CardDescription>Login with your Brozz Admin account</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit}>
@@ -100,7 +100,7 @@ export function LoginForm({
                 />
               </Field>
               <Field>
-                <Button type="submit" disabled={loading}>
+                <Button type="submit" disabled={loading} size="lg" className="w-full">
                   {loading ? "Logging in..." : "Login"}
                 </Button>
                 <FieldDescription className="text-center">
@@ -111,11 +111,6 @@ export function LoginForm({
           </form>
         </CardContent>
       </Card>
-      <FieldDescription className="px-6 text-center">
-        By clicking continue, you agree to our{" "}
-        <a href="/terms">Terms &amp; Conditions</a> and{" "}
-        <a href="/privacy">Privacy Policy</a>.
-      </FieldDescription>
     </div>
   );
 }

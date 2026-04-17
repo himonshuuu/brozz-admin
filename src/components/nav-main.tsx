@@ -1,10 +1,4 @@
 "use client";
-
-import { FileImportIcon, PlusSignCircleIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import Link from "next/link";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -12,7 +6,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { UploadPopup } from "@/components/upload-popup";
+import { FileImportIcon, PlusSignCircleIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import Link from "next/link";
+import { useState } from "react";
 
 export function NavMain({
   items,
@@ -43,7 +40,6 @@ export function NavMain({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <UploadPopup open={importOpen} onOpenChange={setImportOpen} />
         <SidebarMenu>
           {items.map((item) => (
             <SidebarMenuItem key={item.title}>

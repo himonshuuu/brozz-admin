@@ -15,7 +15,7 @@ function getToken(): string | null {
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ||
   process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.printloom.netpiedev.in";
+  "https://api.brozz.in";
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
