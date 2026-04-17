@@ -1,171 +1,64 @@
-<script lang="ts" module>
-	import AudioWaveformIcon from "@lucide/svelte/icons/audio-waveform";
-	import BookOpenIcon from "@lucide/svelte/icons/book-open";
-	import BotIcon from "@lucide/svelte/icons/bot";
-	import ChartPieIcon from "@lucide/svelte/icons/chart-pie";
-	import CommandIcon from "@lucide/svelte/icons/command";
-	import FrameIcon from "@lucide/svelte/icons/frame";
-	import GalleryVerticalEndIcon from "@lucide/svelte/icons/gallery-vertical-end";
-	import MapIcon from "@lucide/svelte/icons/map";
-	import Settings2Icon from "@lucide/svelte/icons/settings-2";
-	import SquareTerminalIcon from "@lucide/svelte/icons/square-terminal";
-
-	// This is sample data.
-	const data = {
-		user: {
-			name: "shadcn",
-			email: "m@example.com",
-			avatar: "/avatars/shadcn.jpg",
-		},
-		teams: [
-			{
-				name: "Acme Inc",
-				logo: GalleryVerticalEndIcon,
-				plan: "Enterprise",
-			},
-			{
-				name: "Acme Corp.",
-				logo: AudioWaveformIcon,
-				plan: "Startup",
-			},
-			{
-				name: "Evil Corp.",
-				logo: CommandIcon,
-				plan: "Free",
-			},
-		],
-		navMain: [
-			{
-				title: "Playground",
-				url: "#",
-				icon: SquareTerminalIcon,
-				isActive: true,
-				items: [
-					{
-						title: "History",
-						url: "#",
-					},
-					{
-						title: "Starred",
-						url: "#",
-					},
-					{
-						title: "Settings",
-						url: "#",
-					},
-				],
-			},
-			{
-				title: "Models",
-				url: "#",
-				icon: BotIcon,
-				items: [
-					{
-						title: "Genesis",
-						url: "#",
-					},
-					{
-						title: "Explorer",
-						url: "#",
-					},
-					{
-						title: "Quantum",
-						url: "#",
-					},
-				],
-			},
-			{
-				title: "Documentation",
-				url: "#",
-				icon: BookOpenIcon,
-				items: [
-					{
-						title: "Introduction",
-						url: "#",
-					},
-					{
-						title: "Get Started",
-						url: "#",
-					},
-					{
-						title: "Tutorials",
-						url: "#",
-					},
-					{
-						title: "Changelog",
-						url: "#",
-					},
-				],
-			},
-			{
-				title: "Settings",
-				url: "#",
-				icon: Settings2Icon,
-				items: [
-					{
-						title: "General",
-						url: "#",
-					},
-					{
-						title: "Team",
-						url: "#",
-					},
-					{
-						title: "Billing",
-						url: "#",
-					},
-					{
-						title: "Limits",
-						url: "#",
-					},
-				],
-			},
-		],
-		projects: [
-			{
-				name: "Design Engineering",
-				url: "#",
-				icon: FrameIcon,
-			},
-			{
-				name: "Sales & Marketing",
-				url: "#",
-				icon: ChartPieIcon,
-			},
-			{
-				name: "Travel",
-				url: "#",
-				icon: MapIcon,
-			},
-		],
-	};
-</script>
-
 <script lang="ts">
-	import NavMain from "./nav-main.svelte";
-	import NavProjects from "./nav-projects.svelte";
-	import NavUser from "./nav-user.svelte";
-	import TeamSwitcher from "./team-switcher.svelte";
-	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
-	import type { ComponentProps } from "svelte";
+	import NavMain from './nav-main.svelte';
+	import NavUser from './nav-user.svelte';
+	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
+	import { authStore } from '$lib/stores/auth.svelte.js';
+	import HomeIcon from '@lucide/svelte/icons/home';
+	import UsersIcon from '@lucide/svelte/icons/users';
+	import UserIcon from '@lucide/svelte/icons/user';
+	import type { ComponentProps } from 'svelte';
 
 	let {
 		ref = $bindable(null),
-		collapsible = "icon",
+		collapsible = 'icon',
 		...restProps
 	}: ComponentProps<typeof Sidebar.Root> = $props();
+
+	const allNavItems = [
+		{ title: 'Dashboard', url: '/dashboard', icon: HomeIcon },
+		{ title: 'All Accounts', url: '/dashboard/accounts/all', icon: UsersIcon, superAdminOnly: true },
+		{ title: 'Admins', url: '/dashboard/accounts/admins', icon: UserIcon, superAdminOnly: true },
+		{ title: 'Distributors', url: '/dashboard/accounts/distributors', icon: UserIcon, superAdminOnly: true },
+		{ title: 'Retailers', url: '/dashboard/accounts/retailers', icon: UserIcon, superAdminOnly: true },
+		{ title: 'Staff', url: '/dashboard/accounts/staff', icon: UserIcon, superAdminOnly: true },
+		{ title: 'Users', url: '/dashboard/accounts/users', icon: UserIcon, superAdminOnly: true },
+	];
+
+	const navItems = $derived(
+		allNavItems.filter((item) => {
+			if ('superAdminOnly' in item && item.superAdminOnly) {
+				return authStore.user?.role === 'SUPER_ADMIN';
+			}
+			return true;
+		})
+	);
 </script>
 
-<Sidebar.Root bind:ref {collapsible} {...restProps}>
-	<Sidebar.Header>
-		<TeamSwitcher teams={data.teams} />
-	</Sidebar.Header>
-	<Sidebar.Content>
-		<NavMain items={data.navMain} />
-		<NavProjects projects={data.projects} />
-	</Sidebar.Content>
-	<Sidebar.Footer>
-		<NavUser user={data.user} />
-	</Sidebar.Footer>
-	<Sidebar.Rail />
-</Sidebar.Root>
+{#if authStore.user}
+	<Sidebar.Root bind:ref {collapsible} {...restProps}>
+		<Sidebar.Header>
+			<Sidebar.Menu>
+				<Sidebar.MenuItem>
+					<Sidebar.MenuButton class="data-[slot=sidebar-menu-button]:p-1.5! flex items-center gap-2">
+						<span class="relative flex items-center gap-2">
+                  <span class="block group-hover:hidden">
+                    <img src={"/logo.png"} height={16} width={16} alt="logo"/>
+                  </span>
+                  <span class="hidden group-hover:block">
+                    <Sidebar.SidebarTrigger class="ml-0 p-0 size-5!" />
+                  </span>
+                  <span class="text-base font-semibold">Brozz</span>
+                </span>
+					</Sidebar.MenuButton>
+				</Sidebar.MenuItem>
+			</Sidebar.Menu>
+		</Sidebar.Header>
+		<Sidebar.Content>
+			<NavMain items={navItems} />
+		</Sidebar.Content>
+		<Sidebar.Footer>
+			<Sidebar.Separator />
+			<NavUser user={authStore.user} />
+		</Sidebar.Footer>
+	</Sidebar.Root>
+{/if}

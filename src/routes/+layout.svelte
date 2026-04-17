@@ -1,9 +1,15 @@
 <script lang="ts">
 	import './layout.css';
-	import favicon from '$lib/assets/favicon.svg';
+	import { Toaster } from '$lib/components/ui/sonner/index.js';
+	import { onMount } from 'svelte';
+	import { authStore } from '$lib/stores/auth.svelte.js';
 
 	let { children } = $props();
+
+	onMount(() => {
+		authStore.hydrate();
+	});
 </script>
 
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
 {@render children()}
+<Toaster richColors />
